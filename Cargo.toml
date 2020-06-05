@@ -1,0 +1,19 @@
+[package]
+name         = "temporal-lens-server"
+version      = "0.1.0"
+authors      = ["Nicolas BARBOTIN <nicolas@barbot.in>", "Clément Poull"]
+description  = "Temporal Lens Rust server - Temporal Lens is a telemetry infrastructure for Rust"
+categories   = ["development-tools::profiling"]
+keywords     = ["profiling", "telemetry"]
+repository   = "https://github.com/temporal-lens-team/temporal-lens-server"
+readme       = "README.md"
+license      = "MIT OR Apache-2.0"
+edition      = "2018"
+
+[dependencies]
+clap = "2.33"
+log = "0.4"
+
+[dependencies.log4rs]
+version = "0.12"
+features = ["toml_format"]
