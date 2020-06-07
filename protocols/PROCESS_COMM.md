@@ -1,8 +1,6 @@
 # Process communication protocol description
 
-**Protocol version: 0.1.0**
-
-**Note: This document is still a Work In Progress**
+**Protocol version: 0.1.0 (first draft)**
 
 Communication with the process to profile is realized with the help of shared memory. This document describes the organization of this shared memory as well
 as the synchronization required to achieve safe data transmission between `temporal-lens` and `temporal-lens-server`.
@@ -24,12 +22,14 @@ type Time = f64;     //TBD. Low precision time
 type Duration = u64; //TBD. High precision time difference
 type Color = u32;    //24 bits, 0x00RRGGBB
 
+#[derive(Copy, Clone)]
 struct SharedString {
     key: usize,                 //A number that uniquely identifies this zone's name string (typically, the string's address)
     size: u8,                   //The length of this string, max 128 bytes
     contents: Option<[u8; 128]> //None if this string has already been sent. Otherwise, the string's contents
 }
 
+#[derive(Copy, Clone)]
 struct ZoneData {
     uid: u32,           //A number that uniquely identifies the zone
     color: Color,       //The color of the zone
@@ -38,6 +38,7 @@ struct ZoneData {
     name: SharedString  //The name of the zone
 }
 
+#[derive(Copy, Clone)]
 struct PlotData {
     time: Time,
     color: Color,
@@ -45,6 +46,7 @@ struct PlotData {
     name: SharedString
 }
 
+#[derive(Copy, Clone)]
 struct HeapData {
     time: Time,
     addr: usize,
@@ -53,14 +55,16 @@ struct HeapData {
 }
 
 #[repr(packed)]
+#[derive(Copy, Clone)]
 struct LogEntryHeader {
     time: Time,
     color: Color,
     length: usize
 }
 
-struct Payload<T: Sized> {
-    count: u32,            //How many valid entries are available in `data`
+struct Payload<T: Sized + Copy> {
+    lock: SpinLock,        //A simple spin lock based on an AtomicBool
+    size: usize,           //How many valid entries are available in `data`
     data: [T; NUM_ENTRIES]
 }
 
@@ -74,6 +78,8 @@ struct SharedMemoryData {
     heap_data: Payload<HeapData>,
     plot_data: Payload<PlotData>,
 
+    //Log data; different as it can contain Strings of variable size
+    log_data_lock: SpinLock,      //A simple spin lock based on an AtomicBool
     log_data_count: u32,          //How many valid log messages are available in `log_data`
     log_data: [u8; LOG_DATA_SIZE] //Array of LogEntryHeader followed by `header.length` bytes of log message
 }
@@ -81,4 +87,5 @@ struct SharedMemoryData {
 
 ## Synchronization
 
-**To be done**
+Safe data transmission is achieved using spin locks. These are extremely lightweight and consists in a simple AtomicBool, which makes it extremely easy
+to pass them through shared memory.
