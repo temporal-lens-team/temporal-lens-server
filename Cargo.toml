@@ -13,6 +13,14 @@ edition      = "2018"
 [dependencies]
 clap = "2.33"
 log = "0.4"
+ctrlc = "3.1"
+fxhash = "0.2"
+
+[dependencies.temporal-lens]
+path = "../temporal-lens" # If local, use local version
+version = "0.1.0"         # If published, use the same version as this package
+default-features = false
+features = ["expose-shmem"]
 
 [dependencies.log4rs]
 version = "0.12"
