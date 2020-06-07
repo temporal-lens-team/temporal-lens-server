@@ -7,10 +7,6 @@ use fxhash::FxHashMap;
 
 static RUNNING: AtomicBool = AtomicBool::new(true);
 
-fn default_str() -> String {
-    ("????").to_owned()
-}
-
 fn main() {
     let arg_matches = App::new("temporal-lens-server")
         .version("0.1.0")
