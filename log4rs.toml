@@ -6,10 +6,12 @@ kind = "console"
 
 [appenders.stdout.encoder]
 kind = "pattern"
-pattern = "[{d(%H:%M:%S%.3f)}] [{h({l:5})}] [{t:22}] {m}{n}"
+pattern = "[{d(%H:%M:%S%.3f)}] [{h({l:5})}] [{t:40}] {m}{n}"
 
 [root]
 level = "debug"
 appenders = ["stdout"]
 
 [loggers]
+[loggers.hyper]
+level = "info"

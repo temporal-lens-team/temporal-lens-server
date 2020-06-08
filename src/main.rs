@@ -1,11 +1,67 @@
-use std::sync::atomic::{AtomicBool, Ordering};
+#![feature(proc_macro_hygiene)]
+#![feature(decl_macro)]
+#![feature(maybe_uninit_extra)]
 
-use log::{info, error, warn};
+use log::{info, error, debug, warn};
 use clap::{App, Arg};
-use temporal_lens::shmem;
-use fxhash::FxHashMap;
+use temporal_lens::shmem::SharedMemory;
+use rocket::{get, routes};
+use rocket::config::{Config as RocketConfig, Environment as RocketEnv};
+use rocket_contrib::{json, json::JsonValue};
 
-static RUNNING: AtomicBool = AtomicBool::new(true);
+mod shmem_poller;
+
+const TEMPORAL_LENS_VERSION: u32 = 0x00_01_0000;
+const REST_PROTCOL_VERSION: u32 = 0x00_01_0000;
+
+fn version_string(version: u32) -> String {
+    let major = (version & 0xFF_00_0000) >> 24;
+    let minor = (version & 0x00_FF_0000) >> 16;
+    let patch = version & 0x00_00_FFFF;
+
+    format!("{}.{}.{}", major, minor, patch)
+}
+
+fn shutdown() {
+    //Since there's not way to shutdown Rocket gracefully...
+    let stop = unsafe { shmem_poller::stop() };
+
+    if stop {
+        info!("Shutting down, goodbye.");
+        std::process::exit(0);
+    }
+}
+
+#[get("/")]
+fn info_endpoint() -> JsonValue {
+    json!({
+        "motd": "Welcome to the Temporal Lens Server!",
+        "version": version_string(TEMPORAL_LENS_VERSION),
+        "lib-protocol-version": version_string(temporal_lens::shmem::PROTOCOL_VERSION),
+        "rest-protocol-version": version_string(REST_PROTCOL_VERSION)
+    })
+}
+
+#[get("/shutdown")]
+fn shutdown_endpoint() -> JsonValue {
+    std::thread::spawn(|| {
+        //I know how bad this looks, but I'm trying to work around Rocket's limitations...
+        std::thread::sleep(std::time::Duration::from_secs(5));
+        shutdown();
+    });
+
+    json!({
+        "status": "ok",
+        "info": "Server will shut down in 5 seconds."
+    })
+}
+
+fn port_validator(s: String) -> Result<(), String> {
+    match s.parse::<u16>() {
+        Ok(_)  => Ok(()),
+        Err(_) => Err("Not a valid port number".to_string())
+    }
+}
 
 fn main() {
     let arg_matches = App::new("temporal-lens-server")
@@ -20,12 +76,21 @@ fn main() {
             .takes_value(true)
             .default_value("log4rs.toml")
         )
+        .arg(
+            Arg::with_name("port")
+            .long("port")
+            .short("p")
+            .help("Overrides the port used by the server")
+            .takes_value(true)
+            .validator(port_validator)
+            .default_value("61234")
+        )
         .get_matches();
 
     log4rs::init_file(arg_matches.value_of("logger_config").unwrap(), Default::default()).expect("Failed to load log4rs configuration");
-    info!("Hello world!");
+    info!("Starting up...");
 
-    let mut shmem = match shmem::SharedMemory::create() {
+    let shmem = match SharedMemory::create() {
         Ok(x) => x,
         Err(err) => {
             error!("Failed to create shared memory: {:?}. Perhaps a temporal-lens-server instance is already running?", err);
@@ -33,32 +98,19 @@ fn main() {
         }
     };
 
-    ctrlc::set_handler(move || RUNNING.store(false, Ordering::SeqCst)).expect("Failed to set Ctrl-C handler");
-
-    let mut zone_data: [shmem::ZoneData; shmem::NUM_ENTRIES] = unsafe { std::mem::MaybeUninit::uninit().assume_init() };
-    let mut string_map: FxHashMap<usize, String> = Default::default();
-
-    while RUNNING.load(Ordering::SeqCst) {
-        std::thread::sleep(std::time::Duration::from_millis(10));
-
-        let (retrieved, lost) = unsafe { shmem.zone_data.retrieve_unchecked(zone_data.as_mut_ptr()) };
-        if lost > 0 {
-            warn!("Lost {} ZoneData", lost);
-        }
-
-        for zd in &zone_data[0..retrieved] {
-            if zd.name.has_contents() {
-                let k = zd.name.get_key();
-                let v = zd.name.make_string().unwrap();
-
-                warn!("Got new string 0x{:016x} => {}", k, v);
-                string_map.insert(k, v);
-            }
-            
-            let name = string_map.get(&zd.name.get_key()).map(|s| s.as_str()).unwrap_or("????");
-            info!("Received ZoneData 0x{:016x}: name=\"{}\" start={:.3} duration={} color=0x{:08x}", zd.uid, name, zd.start, zd.duration, zd.color);
-        }
+    shmem_poller::start(shmem);
+    
+    if let Err(err) = ctrlc::set_handler(shutdown) {
+        warn!("Failed to set Ctrl-C handler: {:?}. Please use the `/shutdown` route to shutdown the server gracefully.", err);
     }
 
-    info!("Shutting down, goodbye.");
+    //TODO: At some point, we might want to make more of these things configurable
+    let rocket_cfg = RocketConfig::build(RocketEnv::Production)
+        .address("127.0.0.1")
+        .port(arg_matches.value_of("port").unwrap().parse().unwrap())
+        .workers(4)
+        .unwrap();
+
+    debug!("Initialization complete. Igniting rocket...");
+    rocket::custom(rocket_cfg).mount("/", routes![info_endpoint, shutdown_endpoint]).launch();
 }
