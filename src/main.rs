@@ -56,7 +56,7 @@ fn main() {
             }
             
             let name = string_map.get(&zd.name.get_key()).map(|s| s.as_str()).unwrap_or("????");
-            info!("Received ZoneData {}: name=\"{}\" start={:.3} duration={} color=0x{:08x}", zd.uid, name, zd.start, zd.duration, zd.color);
+            info!("Received ZoneData 0x{:016x}: name=\"{}\" start={:.3} duration={} color=0x{:08x}", zd.uid, name, zd.start, zd.duration, zd.color);
         }
     }
 

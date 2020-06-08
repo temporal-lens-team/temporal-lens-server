@@ -598,7 +598,6 @@ name = "temporal-lens"
 version = "0.1.0"
 dependencies = [
  "dirs",
- "rand",
  "shared_memory",
  "winapi",
 ]

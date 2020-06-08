@@ -1,6 +1,6 @@
 # Process communication protocol description
 
-**Protocol version: 0.1.0 (first draft)**
+**Protocol version: 0.1.1 (second draft)**
 
 Communication with the process to profile is realized with the help of shared memory. This document describes the organization of this shared memory as well
 as the synchronization required to achieve safe data transmission between `temporal-lens` and `temporal-lens-server`.
@@ -14,7 +14,7 @@ dereferenced but instead will be used as a key inside a map to recover its conte
 ## Shared memory structure
 
 ```rs
-const PROTOCOL_VERSION: u32 = 0x00_01_0000; //Major_Minor_Patch
+const PROTOCOL_VERSION: u32 = 0x00_01_0001; //Major_Minor_Patch
 const NUM_ENTRIES: usize = 32;
 const LOG_DATA_SIZE: usize = 8192;
 
@@ -31,7 +31,7 @@ struct SharedString {
 
 #[derive(Copy, Clone)]
 struct ZoneData {
-    uid: u32,           //A number that uniquely identifies the zone
+    uid: usize,         //A number that uniquely identifies the zone
     color: Color,       //The color of the zone
     start: Time,        //Time when the zone started
     duration: Duration, //The execution time
