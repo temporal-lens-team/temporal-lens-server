@@ -11,11 +11,12 @@ license      = "MIT OR Apache-2.0"
 edition      = "2018"
 
 [dependencies]
-clap   = "2.33"
-log    = "0.4"
-fxhash = "0.2"
-rocket = "0.4"
-ctrlc  = "3.1"
+clap    = "2.33"
+log     = "0.4"
+fxhash  = "0.2"
+rocket  = "0.4"
+ctrlc   = "3.1"
+bincode = "1.2"
 
 [dependencies.temporal-lens]
 path = "../temporal-lens" # If local, use local version
@@ -31,3 +32,7 @@ features = ["toml_format"]
 version = "0.4"
 default-features = false
 features = ["json"]
+
+[dependencies.serde]
+version = "1.0"
+features = ["derive"]

@@ -1,6 +1,13 @@
 #![feature(proc_macro_hygiene)]
 #![feature(decl_macro)]
 #![feature(maybe_uninit_extra)]
+#![feature(maybe_uninit_ref)]
+#![feature(new_uninit)]
+
+mod stoppable_thread;
+mod shmem_poller;
+mod string_collection;
+mod memdb;
 
 use log::{info, error, debug, warn};
 use clap::{App, Arg};
@@ -8,8 +15,7 @@ use temporal_lens::shmem::SharedMemory;
 use rocket::{get, routes};
 use rocket::config::{Config as RocketConfig, Environment as RocketEnv};
 use rocket_contrib::{json, json::JsonValue};
-
-mod shmem_poller;
+use string_collection::StringCollection;
 
 const TEMPORAL_LENS_VERSION: u32 = 0x00_01_0000;
 const REST_PROTCOL_VERSION: u32 = 0x00_01_0000;
@@ -24,9 +30,7 @@ fn version_string(version: u32) -> String {
 
 fn shutdown() {
     //Since there's not way to shutdown Rocket gracefully...
-    let stop = unsafe { shmem_poller::stop() };
-
-    if stop {
+    if shmem_poller::stop() {
         info!("Shutting down, goodbye.");
         std::process::exit(0);
     }
@@ -98,7 +102,10 @@ fn main() {
         }
     };
 
-    shmem_poller::start(shmem);
+    let str_collection = StringCollection::new();
+    let sc_accessor = str_collection.new_accessor();
+
+    shmem_poller::start(shmem, str_collection);
     
     if let Err(err) = ctrlc::set_handler(shutdown) {
         warn!("Failed to set Ctrl-C handler: {:?}. Please use the `/shutdown` route to shutdown the server gracefully.", err);
@@ -112,5 +119,8 @@ fn main() {
         .unwrap();
 
     debug!("Initialization complete. Igniting rocket...");
-    rocket::custom(rocket_cfg).mount("/", routes![info_endpoint, shutdown_endpoint]).launch();
+    rocket::custom(rocket_cfg)
+        .mount("/", routes![info_endpoint, shutdown_endpoint])
+        .manage(sc_accessor)
+        .launch();
 }
