@@ -8,7 +8,8 @@ use log::debug;
 pub struct StoppableThread {
     started: AtomicBool,
     running: AtomicBool,
-    handle: UnsafeCell<MaybeUninit<thread::JoinHandle<()>>>
+    handle: UnsafeCell<MaybeUninit<thread::JoinHandle<()>>>,
+    name: &'static str
 }
 
 unsafe impl Sync for StoppableThread {}
@@ -24,11 +25,12 @@ unsafe impl Sync for StoppableThread {}
 ///it is recommanded to run `start()` from the main thread before any other
 ///thread is started.
 impl StoppableThread {
-    pub const fn new() -> Self {
+    pub const fn new(name: &'static str) -> Self {
         Self {
             started: AtomicBool::new(false),
             running: AtomicBool::new(false),
-            handle: UnsafeCell::new(MaybeUninit::uninit())
+            handle: UnsafeCell::new(MaybeUninit::uninit()),
+            name
         }
     }
 
@@ -43,6 +45,8 @@ impl StoppableThread {
                 while !self.running.load(Ordering::SeqCst) {
                     thread::yield_now();
                 }
+
+                debug!("Stoppable thread \"{}\" started", self.name);
                 
                 loop {
                     func(&mut sent);
@@ -52,7 +56,7 @@ impl StoppableThread {
                     }
                 }
 
-                debug!("Stoppable thread stopped");
+                debug!("Stoppable thread \"{}\" ended", self.name);
             });
 
             unsafe {

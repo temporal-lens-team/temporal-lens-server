@@ -46,7 +46,7 @@ fn info_endpoint() -> JsonValue {
     })
 }
 
-#[get("/shutdown")]
+#[get("/serverctl/shutdown")]
 fn shutdown_endpoint() -> JsonValue {
     std::thread::spawn(|| {
         //I know how bad this looks, but I'm trying to work around Rocket's limitations...
@@ -101,6 +101,11 @@ fn main() {
             return;
         }
     };
+
+    unsafe {
+        //Safe because we do it before instantiating any MemDB
+        memdb::init();
+    }
 
     let str_collection = StringCollection::new();
     let sc_accessor = str_collection.new_accessor();
