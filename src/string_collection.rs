@@ -7,6 +7,13 @@ use fxhash::FxHashMap;
 
 const POOL_SIZE: usize = 8192;
 
+#[derive(Debug, Copy, Clone, Hash, Eq, PartialEq)]
+pub enum Key
+{
+    StaticString(usize),
+    ThreadName(usize)
+}
+
 #[derive(Copy, Clone)]
 struct Entry
 {
@@ -22,7 +29,7 @@ struct Pool
 
 struct Internal
 {
-    map: RwLock<FxHashMap<usize, Entry>>,
+    map: RwLock<FxHashMap<Key, Entry>>,
     pools: UnsafeCell<Vec<Pool>>
 }
 
@@ -65,7 +72,7 @@ impl StringCollection
         }
     }
 
-    pub fn insert(&mut self, k: usize, v: &str) {
+    pub fn insert(&mut self, k: Key, v: &str) {
         let v_bytes = v.as_bytes();
         if v_bytes.len() >= POOL_SIZE {
             panic!("string is too long to be inserted in StringCollection");
@@ -93,7 +100,7 @@ impl StringCollection
 unsafe impl Send for StringCollection {} //No problem whatsoever
 
 impl Accessor {
-    pub fn get(&self, k: usize) -> Option<&str> {
+    pub fn get(&self, k: Key) -> Option<&str> {
         let opt_entry = self.0.map.read().unwrap().get(&k).copied();
         
         opt_entry.map(|entry| {
@@ -105,10 +112,10 @@ impl Accessor {
     }
 }
 
-impl Index<usize> for Accessor {
+impl Index<Key> for Accessor {
     type Output = str;
 
-    fn index(&self, index: usize) -> &str {
+    fn index(&self, index: Key) -> &str {
         match self.get(index) {
             Some(s) => s,
             None    => "???"

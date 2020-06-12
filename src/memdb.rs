@@ -159,7 +159,7 @@ impl<T: Serialize> MemDB<T> {
             if let Err(remove_err) = fs::remove_file(path) {
                 warn!("Failed to sync chunk contents to disk, and then failed to remove it!! Things will go wrong... error: {}", remove_err);
             }
-
+            
             Err(ChunkSaveError::FileSyncError(err))
         } else {
             Ok(())

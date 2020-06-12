@@ -34,28 +34,18 @@ impl StoppableThread {
         }
     }
 
-    pub fn start<ToSend: Send + 'static, Func: Fn(&mut ToSend) -> () + Send + 'static>(&'static self, to_send: ToSend, func: Func) -> bool {
+    pub fn start<Func: FnOnce() -> () + Send + 'static>(&'static self, func: Func) -> bool {
         if self.started.compare_and_swap(false, true, Ordering::SeqCst) {
             //Already running
             false
         } else {
             let thread = thread::spawn(move || {
-                let mut sent = to_send;
-
                 while !self.running.load(Ordering::SeqCst) {
                     thread::yield_now();
                 }
 
                 debug!("Stoppable thread \"{}\" started", self.name);
-                
-                loop {
-                    func(&mut sent);
-
-                    if !self.running.load(Ordering::SeqCst) {
-                        break;
-                    }
-                }
-
+                func();
                 debug!("Stoppable thread \"{}\" ended", self.name);
             });
 
@@ -82,5 +72,10 @@ impl StoppableThread {
         } else {
             false
         }
+    }
+
+    #[inline]
+    pub fn running(&self) -> bool {
+        self.running.load(Ordering::SeqCst)
     }
 }
