@@ -8,6 +8,7 @@ mod stoppable_thread;
 mod shmem_poller;
 mod string_collection;
 mod memdb;
+mod common;
 
 use log::{info, error, debug, warn};
 use clap::{App, Arg};
@@ -94,6 +95,29 @@ fn main() {
     log4rs::init_file(arg_matches.value_of("logger_config").unwrap(), Default::default()).expect("Failed to load log4rs configuration");
     info!("Starting up...");
 
+    let data_dir = temporal_lens::get_data_dir();
+    let mut zone_db_dir = data_dir.clone();
+    zone_db_dir.push("zone-db");
+
+    if !data_dir.exists() {
+        if let Err(err) = std::fs::create_dir(&data_dir) {
+            error!("Failed to create temporal-lens data directory \"{}\": {}", data_dir.to_str().unwrap_or("NON UTF-8 PATH"), err);
+            return;
+        }
+    }
+
+    if zone_db_dir.exists() {
+        if let Err(err) = std::fs::remove_dir_all(&zone_db_dir) {
+            error!("Failed to clean temporal-lens zone-db directory \"{}\": {}", zone_db_dir.to_str().unwrap_or("NON UTF-8 PATH"), err);
+            return;
+        }
+    }
+
+    if let Err(err) = std::fs::create_dir(&zone_db_dir) {
+        error!("Failed to create temporal-lens zone-db directory \"{}\": {}", zone_db_dir.to_str().unwrap_or("NON UTF-8 PATH"), err);
+        return;
+    }
+
     let shmem = match SharedMemory::create() {
         Ok(x) => x,
         Err(err) => {
@@ -109,8 +133,9 @@ fn main() {
 
     let str_collection = StringCollection::new();
     let sc_accessor = str_collection.new_accessor();
+    let zone_db = unsafe { memdb::MemDB::new(zone_db_dir) }; //Safe because we called it after `memdb::init()`
 
-    shmem_poller::start(shmem, str_collection);
+    shmem_poller::start(shmem, str_collection, zone_db);
     
     if let Err(err) = ctrlc::set_handler(shutdown) {
         warn!("Failed to set Ctrl-C handler: {:?}. Please use the `/shutdown` route to shutdown the server gracefully.", err);

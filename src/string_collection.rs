@@ -33,6 +33,7 @@ struct Internal
     pools: UnsafeCell<Vec<Pool>>
 }
 
+#[derive(Clone)]
 pub struct Accessor(Arc<Internal>);
 pub struct StringCollection(Arc<Internal>);
 
