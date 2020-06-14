@@ -7,17 +7,36 @@ use std::time::Duration;
 use std::boxed::Box;
 use std::mem::MaybeUninit;
 
-use temporal_lens::shmem::{self, SharedMemory, ZoneData};
+use temporal_lens::shmem::{self, SharedMemory, FrameData, ZoneData};
 use log::{warn};
 
 static POLLER: StoppableThread = StoppableThread::new("shmem_poller");
 
-pub fn start(mut shmem: SharedMemory, mut str_collection: StringCollection, mut zone_db: MemDB<LiteZoneData>) {
+pub fn start(mut shmem: SharedMemory, mut str_collection: StringCollection, mut frame_db: MemDB<FrameData>, mut zone_db: MemDB<LiteZoneData>) {
     POLLER.start(move || {
+        let mut frame_data: Box<MaybeUninit<[FrameData; shmem::NUM_ENTRIES]>> = Box::new_uninit();
         let mut zone_data: Box<MaybeUninit<[ZoneData; shmem::NUM_ENTRIES]>> = Box::new_uninit();
         let mut last_time: shmem::Time = 0.0;
 
         while POLLER.running() {
+            let (fd, count, missed) = unsafe {
+                let (count, missed) = shmem.frame_data.retrieve_unchecked(frame_data.get_mut().as_mut_ptr());
+                (frame_data.get_ref(), count, missed)
+            };
+
+            if missed > 0 {
+                warn!("Server is too slow! Missed {} FrameData entries!", missed);
+            }
+
+            for i in 0..count {
+                let fdi = &fd[i];
+
+                frame_db.push(TimeData {
+                    time: fdi.end,
+                    data: *fdi
+                });
+            }
+
             let (zd, count, missed) = unsafe {
                 let (count, missed) = shmem.zone_data.retrieve_unchecked(zone_data.get_mut().as_mut_ptr());
                 (zone_data.get_ref(), count, missed)
@@ -54,6 +73,7 @@ pub fn start(mut shmem: SharedMemory, mut str_collection: StringCollection, mut 
                 zone_db.push(entry); //Is that good or is it better to do it all at once?
             }
 
+            frame_db.unload_old_chunks();
             zone_db.unload_old_chunks();
             std::thread::sleep(Duration::from_millis(10));
         }

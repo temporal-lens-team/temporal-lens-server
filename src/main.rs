@@ -12,7 +12,7 @@ mod common;
 
 use log::{info, error, debug, warn};
 use clap::{App, Arg};
-use temporal_lens::shmem::SharedMemory;
+use temporal_lens::shmem::{SharedMemory, FrameData};
 use rocket::{get, routes, State};
 use rocket::config::{Config as RocketConfig, Environment as RocketEnv};
 use rocket_contrib::{json, json::JsonValue};
@@ -20,6 +20,7 @@ use string_collection::{StringCollection, Accessor as SCAccessor, Key as SCKey};
 use memdb::{MemDB, Accessor as MDBAccessor};
 use common::LiteZoneData;
 use fxhash::FxHashMap;
+use std::path::PathBuf;
 
 const TEMPORAL_LENS_VERSION: u32 = 0x00_01_0000;
 const REST_PROTCOL_VERSION: u32 = 0x00_01_0000;
@@ -38,6 +39,12 @@ fn shutdown() {
         info!("Shutting down, goodbye.");
         std::process::exit(0);
     }
+}
+
+struct Managed {
+    frame_db: MDBAccessor<FrameData>,
+    zone_db: MDBAccessor<LiteZoneData>,
+    str_collection: SCAccessor
 }
 
 #[get("/")]
@@ -68,18 +75,26 @@ fn shutdown_endpoint() -> JsonValue {
     })
 }
 
-#[get("/data/plots?<start>&<end>")]
-fn query_plots_endpoint(start: f64, end: f64, str_collection: State<SCAccessor>, zone_db: State<MDBAccessor<LiteZoneData>>) -> JsonValue {
-    //TODO: I suspect the `json!` macro copies string. If it does, maybe try to `str_collection.get_static` and see if it results in
-    //performance improvements.
+#[get("/data/frame-times?<start>&<end>")]
+fn query_frame_times(start: f64, end: f64, state: State<Managed>) -> JsonValue {
+    let mut results = Vec::new();
+    state.frame_db.query(start, end, |_, r| results.push(*r));
 
+    json!({
+        "status": "ok",
+        "results": results
+    })
+}
+
+#[get("/data/plots?<start>&<end>")]
+fn query_plots_endpoint(start: f64, end: f64, state: State<Managed>) -> JsonValue {
     let mut strings: FxHashMap<usize, &str> = Default::default();
     let mut thread_names: FxHashMap<usize, &str> = Default::default();
     let mut results = Vec::new();
 
-    zone_db.query(start, end, |k, r| {
-        strings.entry(r.data.name).or_insert_with(|| str_collection.get(SCKey::StaticString(r.data.name)).unwrap_or("????"));
-        thread_names.entry(r.data.thread).or_insert_with(|| str_collection.get(SCKey::ThreadName(r.data.thread)).unwrap_or("????"));
+    state.zone_db.query(start, end, |k, r| {
+        strings.entry(r.data.name).or_insert_with(|| state.str_collection.get(SCKey::StaticString(r.data.name)).unwrap_or("????"));
+        thread_names.entry(r.data.thread).or_insert_with(|| state.str_collection.get(SCKey::ThreadName(r.data.thread)).unwrap_or("????"));
 
         results.push(r.data.reconstruct(r.time, k));
     });
@@ -97,6 +112,33 @@ fn port_validator(s: String) -> Result<(), String> {
         Ok(_)  => Ok(()),
         Err(_) => Err("Not a valid port number".to_string())
     }
+}
+
+fn clean_or_create_dir(path: &PathBuf) -> bool {
+    if path.exists() {
+        if let Err(err) = std::fs::remove_dir_all(path) {
+            error!("Failed to clean temporal-lens directory \"{}\": {}", path.to_str().unwrap_or("NON UTF-8 PATH"), err);
+            return false;
+        }
+    }
+
+    if let Err(err) = std::fs::create_dir(path) {
+        error!("Failed to create temporal-lens directory \"{}\": {}", path.to_str().unwrap_or("NON UTF-8 PATH"), err);
+        return false;
+    }
+
+    true
+}
+
+macro_rules! subdirs {
+    ($original:ident, [$($others:literal),+]) => {
+        ($({
+            let mut tmp = $original.clone();
+            tmp.push($others);
+
+            tmp
+        }),+)
+    };
 }
 
 fn main() {
@@ -127,8 +169,7 @@ fn main() {
     info!("Starting up...");
 
     let data_dir = temporal_lens::get_data_dir();
-    let mut zone_db_dir = data_dir.clone();
-    zone_db_dir.push("zone-db");
+    let (frame_db_dir, zone_db_dir) = subdirs!(data_dir, ["frames", "zone-db"]);
 
     if !data_dir.exists() {
         if let Err(err) = std::fs::create_dir(&data_dir) {
@@ -137,15 +178,7 @@ fn main() {
         }
     }
 
-    if zone_db_dir.exists() {
-        if let Err(err) = std::fs::remove_dir_all(&zone_db_dir) {
-            error!("Failed to clean temporal-lens zone-db directory \"{}\": {}", zone_db_dir.to_str().unwrap_or("NON UTF-8 PATH"), err);
-            return;
-        }
-    }
-
-    if let Err(err) = std::fs::create_dir(&zone_db_dir) {
-        error!("Failed to create temporal-lens zone-db directory \"{}\": {}", zone_db_dir.to_str().unwrap_or("NON UTF-8 PATH"), err);
+    if !clean_or_create_dir(&frame_db_dir) || !clean_or_create_dir(&zone_db_dir) {
         return;
     }
 
@@ -163,11 +196,16 @@ fn main() {
     }
 
     let str_collection = StringCollection::new();
-    let sc_accessor = str_collection.new_accessor();
+    let frame_db = unsafe { MemDB::new(frame_db_dir) };
     let zone_db = unsafe { MemDB::new(zone_db_dir) }; //Safe because we called it after `memdb::init()`
-    let zone_db_accessor = zone_db.new_accessor();
 
-    shmem_poller::start(shmem, str_collection, zone_db);
+    let managed = Managed {
+        frame_db: frame_db.new_accessor(),
+        zone_db: zone_db.new_accessor(),
+        str_collection: str_collection.new_accessor()
+    };
+
+    shmem_poller::start(shmem, str_collection, frame_db, zone_db);
     
     if let Err(err) = ctrlc::set_handler(shutdown) {
         warn!("Failed to set Ctrl-C handler: {:?}. Please use the `/shutdown` route to shutdown the server gracefully.", err);
@@ -182,8 +220,7 @@ fn main() {
 
     debug!("Initialization complete. Igniting rocket...");
     rocket::custom(rocket_cfg)
-        .mount("/", routes![info_endpoint, shutdown_endpoint, query_plots_endpoint])
-        .manage(sc_accessor)
-        .manage(zone_db_accessor)
+        .mount("/", routes![info_endpoint, shutdown_endpoint, query_frame_times, query_plots_endpoint])
+        .manage(managed)
         .launch();
 }

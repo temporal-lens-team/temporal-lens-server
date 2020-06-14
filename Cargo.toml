@@ -22,7 +22,7 @@ bincode = "1.2"
 path = "../temporal-lens" # If local, use local version
 version = "0.1.0"         # If published, use the same version as this package
 default-features = false
-features = ["expose-shmem"]
+features = ["server-mode"]
 
 [dependencies.log4rs]
 version = "0.12"

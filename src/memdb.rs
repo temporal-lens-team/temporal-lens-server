@@ -46,7 +46,7 @@ pub struct MemDB<T> {
     unload_list: Vec<usize>
 }
 
-const SWAP_THRESHOLD: usize = 8192;
+const SWAP_THRESHOLD: usize = 32768;
 const UNLOAD_THRESHOLD: u64 = 60; //In seconds
 static mut START_INSTANT: MaybeUninit<Instant> = MaybeUninit::uninit();
 
