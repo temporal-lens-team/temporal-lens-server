@@ -13,10 +13,13 @@ mod common;
 use log::{info, error, debug, warn};
 use clap::{App, Arg};
 use temporal_lens::shmem::SharedMemory;
-use rocket::{get, routes};
+use rocket::{get, routes, State};
 use rocket::config::{Config as RocketConfig, Environment as RocketEnv};
 use rocket_contrib::{json, json::JsonValue};
-use string_collection::StringCollection;
+use string_collection::{StringCollection, Accessor as SCAccessor, Key as SCKey};
+use memdb::{MemDB, Accessor as MDBAccessor};
+use common::LiteZoneData;
+use fxhash::FxHashMap;
 
 const TEMPORAL_LENS_VERSION: u32 = 0x00_01_0000;
 const REST_PROTCOL_VERSION: u32 = 0x00_01_0000;
@@ -38,12 +41,16 @@ fn shutdown() {
 }
 
 #[get("/")]
-fn info_endpoint() -> JsonValue {
+fn info_endpoint(zone_db: State<MDBAccessor<LiteZoneData>>) -> JsonValue {
+    let (loaded, total) = zone_db.get_stats();
+    let state = format!("{} chunks out of {} loaded", loaded, total);
+
     json!({
         "motd": "Welcome to the Temporal Lens Server!",
         "version": version_string(TEMPORAL_LENS_VERSION),
         "lib-protocol-version": version_string(temporal_lens::shmem::PROTOCOL_VERSION),
-        "rest-protocol-version": version_string(REST_PROTCOL_VERSION)
+        "rest-protocol-version": version_string(REST_PROTCOL_VERSION),
+        "state": state
     })
 }
 
@@ -58,6 +65,30 @@ fn shutdown_endpoint() -> JsonValue {
     json!({
         "status": "ok",
         "info": "Server will shut down in 5 seconds."
+    })
+}
+
+#[get("/data/plots?<start>&<end>")]
+fn query_plots_endpoint(start: f64, end: f64, str_collection: State<SCAccessor>, zone_db: State<MDBAccessor<LiteZoneData>>) -> JsonValue {
+    //TODO: I suspect the `json!` macro copies string. If it does, maybe try to `str_collection.get_static` and see if it results in
+    //performance improvements.
+
+    let mut strings: FxHashMap<usize, &str> = Default::default();
+    let mut thread_names: FxHashMap<usize, &str> = Default::default();
+    let mut results = Vec::new();
+
+    zone_db.query(start, end, |k, r| {
+        strings.entry(r.data.name).or_insert_with(|| str_collection.get(SCKey::StaticString(r.data.name)).unwrap_or("????"));
+        thread_names.entry(r.data.thread).or_insert_with(|| str_collection.get(SCKey::ThreadName(r.data.thread)).unwrap_or("????"));
+
+        results.push(r.data.reconstruct(r.time, k));
+    });
+
+    json!({
+        "status": "ok",
+        "strings": strings,
+        "thread_names": thread_names,
+        "results": results
     })
 }
 
@@ -133,7 +164,8 @@ fn main() {
 
     let str_collection = StringCollection::new();
     let sc_accessor = str_collection.new_accessor();
-    let zone_db = unsafe { memdb::MemDB::new(zone_db_dir) }; //Safe because we called it after `memdb::init()`
+    let zone_db = unsafe { MemDB::new(zone_db_dir) }; //Safe because we called it after `memdb::init()`
+    let zone_db_accessor = zone_db.new_accessor();
 
     shmem_poller::start(shmem, str_collection, zone_db);
     
@@ -150,7 +182,8 @@ fn main() {
 
     debug!("Initialization complete. Igniting rocket...");
     rocket::custom(rocket_cfg)
-        .mount("/", routes![info_endpoint, shutdown_endpoint])
+        .mount("/", routes![info_endpoint, shutdown_endpoint, query_plots_endpoint])
         .manage(sc_accessor)
+        .manage(zone_db_accessor)
         .launch();
 }

@@ -5,7 +5,6 @@ use std::mem::MaybeUninit;
 use std::path::PathBuf;
 use std::io::Error as IOResult;
 use std::fs;
-use std::cell::RefCell;
 
 use bincode::Error as BincodeError;
 use serde::{Serialize, Deserialize, de::DeserializeOwned};
@@ -39,8 +38,7 @@ struct Contents<T>
 
 pub struct Accessor<T>
 {
-    contents: Arc<Contents<T>>,
-    lookup_list: RefCell<Vec<usize>>
+    contents: Arc<Contents<T>>
 }
 
 pub struct MemDB<T> {
@@ -48,7 +46,7 @@ pub struct MemDB<T> {
     unload_list: Vec<usize>
 }
 
-const SWAP_THRESHOLD: usize = 32768;
+const SWAP_THRESHOLD: usize = 8192;
 const UNLOAD_THRESHOLD: u64 = 60; //In seconds
 static mut START_INSTANT: MaybeUninit<Instant> = MaybeUninit::uninit();
 
@@ -71,6 +69,7 @@ impl<T: Serialize + DeserializeOwned> Chunk<T> {
     fn try_saving_to(&mut self, path: PathBuf) -> Result<(), ChunkSaveError> {
         if path.exists() {
             //Already saved! We're good!
+            self.data = None;
             return Ok(());
         }
 
@@ -102,7 +101,9 @@ impl<T: Serialize + DeserializeOwned> Chunk<T> {
     }
 }
 
-///MemDB is basically a huge collection of `TimeData<T>`
+///MemDB is just a fancy name for "huge vec". It can store a lot
+///of data indexed by a "time" field. It can then perform queries
+///based on this field.
 ///
 ///Data is inserted but never deleted or modified. Internally,
 ///data is split into chunks, each one containing a maximum of
@@ -212,18 +213,16 @@ impl<T: Serialize + DeserializeOwned> MemDB<T> {
 
     pub fn new_accessor(&self) -> Accessor<T> {
         Accessor {
-            contents: self.contents.clone(),
-            lookup_list: RefCell::new(Vec::new())
+            contents: self.contents.clone()
         }
     }
 }
 
 impl<T: Serialize + DeserializeOwned> Accessor<T> {
-    fn prepare_query(&self, min: f64, max: f64) -> RwLockReadGuard<Shared<T>> {
+    fn prepare_query(&self, min: f64, max: f64, lookup_list: &mut Vec<usize>) -> RwLockReadGuard<Shared<T>> {
         //Load all unloaded chunks that are potentially needed
         let shared = self.contents.shared.read().unwrap();
         let now = unsafe { START_INSTANT.get_ref().elapsed().as_secs() };
-        let mut lookup_list = self.lookup_list.borrow_mut();
         let mut should_load = false;
 
         for i in 0..shared.old_chunks.len() { //FIXME: Replace this for loop with binary search!!
@@ -242,6 +241,7 @@ impl<T: Serialize + DeserializeOwned> Accessor<T> {
         if should_load {
             drop(shared);
             let mut shared = self.contents.shared.write().unwrap();
+            let mut num_reloaded = 0;
 
             for &i in &*lookup_list {
                 let chunk = &mut shared.old_chunks[i];
@@ -252,10 +252,15 @@ impl<T: Serialize + DeserializeOwned> Accessor<T> {
 
                     if let Err(err) = chunk.try_loading_from(path) {
                         error!("Could not reload chunk: {:?}", err);
+                    } else {
+                        self.contents.loaded_chunks.lock().unwrap().push(i);
+                        num_reloaded += 1;
                     }
                 }
             }
 
+            drop(shared);
+            debug!("Reloaded {} chunks from disk", num_reloaded);
             self.contents.shared.read().unwrap() //TODO: Switch to parking_lot and use downgrade
         } else {
             shared
@@ -283,28 +288,29 @@ impl<T: Serialize + DeserializeOwned> Accessor<T> {
         }
     }
 
-    pub fn query<Func: FnMut(&TimeData<T>)>(&mut self, min: f64, max: f64, mut callback: Func) {
-        let access = self.prepare_query(min, max);
-        let mut lookup_list = self.lookup_list.borrow_mut();
+    pub fn query<Func: FnMut(u64, &TimeData<T>)>(&self, min: f64, max: f64, mut callback: Func) {
+        let mut lookup_list = Vec::new(); //TODO: It sucks having to allocate everytime...
+        let access = self.prepare_query(min, max, &mut lookup_list);
 
-        for &i in &*lookup_list {
+        for &i in &lookup_list {
             let chunk = &access.old_chunks[i];
 
             if let Some(data) = chunk.data.as_ref() {
+                let k_base = (i as u64) << 32;
                 let start = if chunk.min < min { Self::binary_search(data.as_slice(), min) } else { 0 };
 
                 if chunk.max < max {
                     for j in start..data.len() {
-                        callback(&data[j]);
+                        callback(k_base | (j as u64), &data[j]);
                     }
                 } else {
                     for j in start..data.len() {
                         let entry = &data[j];
                         if entry.time > max {
-                            break;
+                            return;
                         }
 
-                        callback(entry);
+                        callback(k_base | (j as u64), entry);
                     }
                 }
             } else {
@@ -312,15 +318,36 @@ impl<T: Serialize + DeserializeOwned> Accessor<T> {
             }
         }
 
-        lookup_list.clear();
+        //If we haven't left this function by now, that means we also need to check the current chunk
+        let chunk = &access.current_chunk;
+        
+        if chunk.len() > 0 {
+            let k_base = (access.old_chunks.len() as u64) << 32;
+            let start = if chunk[0].time < min { Self::binary_search(chunk.as_slice(), min) } else { 0 };
+
+            for i in start..chunk.len() {
+                let entry = &chunk[i];
+                if entry.time > max {
+                    break;
+                }
+
+                callback(k_base | (i as u64), entry);
+            }
+        }
+    }
+
+    pub fn get_stats(&self) -> (usize, usize) {
+        let loaded = self.contents.loaded_chunks.lock().unwrap().len() + 1;
+        let total = self.contents.shared.read().unwrap().old_chunks.len() + 1;
+
+        (loaded, total)
     }
 }
 
 impl<T> Clone for Accessor<T> {
     fn clone(&self) -> Self {
         Self {
-            contents: self.contents.clone(),
-            lookup_list: RefCell::new(Vec::new())
+            contents: self.contents.clone()
         }
     }
 }

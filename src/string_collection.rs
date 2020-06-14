@@ -101,7 +101,7 @@ impl StringCollection
 unsafe impl Send for StringCollection {} //No problem whatsoever
 
 impl Accessor {
-    pub fn get(&self, k: Key) -> Option<&str> {
+    pub fn get<'a>(&'a self, k: Key) -> Option<&'a str> {
         let opt_entry = self.0.map.read().unwrap().get(&k).copied();
         
         opt_entry.map(|entry| {
@@ -109,6 +109,20 @@ impl Accessor {
                 let s = std::slice::from_raw_parts(entry.ptr, entry.len);
                 std::str::from_utf8_unchecked(s)
             }
+        })
+    }
+
+    ///Same as `get()` except it assumes the lifetime of the string is static.
+    ///This is completely unsafe as in reality the lifetime of string corresponds
+    ///to the lifetime of the StringCollection. However, if you are 100% sure
+    ///the StringCollection instance won't be destroyed, this might be a faster
+    ///option.
+    pub unsafe fn get_static(&self, k: Key) -> Option<&'static str> {
+        let opt_entry = self.0.map.read().unwrap().get(&k).copied();
+        
+        opt_entry.map(|entry| {
+            let s = std::slice::from_raw_parts(entry.ptr, entry.len);
+            std::str::from_utf8_unchecked(s)
         })
     }
 }
