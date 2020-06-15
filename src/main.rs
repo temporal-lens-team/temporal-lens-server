@@ -10,17 +10,23 @@ mod string_collection;
 mod memdb;
 mod common;
 
-use log::{info, error, debug, warn};
-use clap::{App, Arg};
 use temporal_lens::shmem::{SharedMemory, FrameData};
-use rocket::{get, routes, State};
-use rocket::config::{Config as RocketConfig, Environment as RocketEnv};
-use rocket_contrib::{json, json::JsonValue};
 use string_collection::{StringCollection, Accessor as SCAccessor, Key as SCKey};
 use memdb::{MemDB, Accessor as MDBAccessor};
 use common::LiteZoneData;
-use fxhash::FxHashMap;
+
 use std::path::PathBuf;
+use std::time::Instant;
+
+use rocket::{get, routes, State, Outcome};
+use rocket::config::{Config as RocketConfig, Environment as RocketEnv};
+use rocket::fairing::AdHoc;
+use rocket::response::content;
+use rocket_contrib::{json, json::JsonValue};
+
+use log::{info, error, debug, warn};
+use clap::{App, Arg};
+use fxhash::FxHashMap;
 
 const TEMPORAL_LENS_VERSION: u32 = 0x00_01_0000;
 const REST_PROTCOL_VERSION: u32 = 0x00_01_0000;
@@ -44,12 +50,13 @@ fn shutdown() {
 struct Managed {
     frame_db: MDBAccessor<FrameData>,
     zone_db: MDBAccessor<LiteZoneData>,
-    str_collection: SCAccessor
+    str_collection: SCAccessor,
+    start: Instant
 }
 
 #[get("/")]
-fn info_endpoint(zone_db: State<MDBAccessor<LiteZoneData>>) -> JsonValue {
-    let (loaded, total) = zone_db.get_stats();
+fn info_endpoint(state: State<Managed>) -> JsonValue {
+    let (loaded, total) = state.zone_db.get_stats();
     let state = format!("{} chunks out of {} loaded", loaded, total);
 
     json!({
@@ -59,6 +66,12 @@ fn info_endpoint(zone_db: State<MDBAccessor<LiteZoneData>>) -> JsonValue {
         "rest-protocol-version": version_string(REST_PROTCOL_VERSION),
         "state": state
     })
+}
+
+#[get("/serverctl/keep-alive")]
+fn keep_alive_endpoint() -> content::Json<&'static str> {
+    //Timer reset done in fairing
+    content::Json("{\"status\":\"ok\"}")
 }
 
 #[get("/serverctl/shutdown")]
@@ -163,6 +176,12 @@ fn main() {
             .validator(port_validator)
             .default_value("61234")
         )
+        .arg(
+            Arg::with_name("forever")
+            .long("forever")
+            .short("f")
+            .help("Disables keep-alive mechanism and never shut the server down automatically")
+        )
         .get_matches();
 
     log4rs::init_file(arg_matches.value_of("logger_config").unwrap(), Default::default()).expect("Failed to load log4rs configuration");
@@ -198,14 +217,17 @@ fn main() {
     let str_collection = StringCollection::new();
     let frame_db = unsafe { MemDB::new(frame_db_dir) };
     let zone_db = unsafe { MemDB::new(zone_db_dir) }; //Safe because we called it after `memdb::init()`
+    let start_instant = Instant::now();
 
     let managed = Managed {
         frame_db: frame_db.new_accessor(),
         zone_db: zone_db.new_accessor(),
-        str_collection: str_collection.new_accessor()
+        str_collection: str_collection.new_accessor(),
+        start: start_instant
     };
 
-    shmem_poller::start(shmem, str_collection, frame_db, zone_db);
+    let opt_start = if arg_matches.is_present("forever") { None } else { Some(start_instant) };
+    shmem_poller::start(shmem, opt_start, str_collection, frame_db, zone_db);
     
     if let Err(err) = ctrlc::set_handler(shutdown) {
         warn!("Failed to set Ctrl-C handler: {:?}. Please use the `/shutdown` route to shutdown the server gracefully.", err);
@@ -220,7 +242,14 @@ fn main() {
 
     debug!("Initialization complete. Igniting rocket...");
     rocket::custom(rocket_cfg)
-        .mount("/", routes![info_endpoint, shutdown_endpoint, query_frame_times, query_plots_endpoint])
+        .mount("/", routes![info_endpoint, keep_alive_endpoint, shutdown_endpoint, query_frame_times, query_plots_endpoint])
         .manage(managed)
+        .attach(AdHoc::on_request("Update keep-alive time", |r, _| {
+            if let Outcome::Success(state) = r.guard::<State<Managed>>() {
+                shmem_poller::update_keep_alive(state.start.elapsed().as_secs());
+            } else {
+                warn!("Couldn't reset keep-alive timer. Server might shut down unexpectedly.");
+            }
+        }))
         .launch();
 }

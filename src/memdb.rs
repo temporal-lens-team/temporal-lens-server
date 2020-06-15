@@ -321,7 +321,7 @@ impl<T: Serialize + DeserializeOwned> Accessor<T> {
         //If we haven't left this function by now, that means we also need to check the current chunk
         let chunk = &access.current_chunk;
         
-        if chunk.len() > 0 {
+        if chunk.last().map(|c| min <= c.time).unwrap_or(false) {
             let k_base = (access.old_chunks.len() as u64) << 32;
             let start = if chunk[0].time < min { Self::binary_search(chunk.as_slice(), min) } else { 0 };
 
@@ -380,7 +380,12 @@ fn binary_search_test() {
         let max = prev;
 
         for j in 0..1000 {
-            let query = if j == 0 { min } else { rng.gen_range(min, max) };
+            let query = match j {
+                0   => min,
+                999 => array.last().unwrap().time,
+                _   => rng.gen_range(min, max)
+            };
+
             assert!(query > array[0].time); //Can't be too sure
 
             let result = Accessor::binary_search(&array, query);

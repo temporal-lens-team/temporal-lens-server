@@ -3,22 +3,32 @@ use crate::stoppable_thread::StoppableThread;
 use crate::memdb::{TimeData, MemDB};
 use crate::common::LiteZoneData;
 
-use std::time::Duration;
+use std::time::{Instant, Duration};
 use std::boxed::Box;
 use std::mem::MaybeUninit;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use temporal_lens::shmem::{self, SharedMemory, FrameData, ZoneData};
-use log::{warn};
+use log::{info, warn};
 
 static POLLER: StoppableThread = StoppableThread::new("shmem_poller");
+static LAST_QUERY: AtomicU64 = AtomicU64::new(0);
 
-pub fn start(mut shmem: SharedMemory, mut str_collection: StringCollection, mut frame_db: MemDB<FrameData>, mut zone_db: MemDB<LiteZoneData>) {
+pub fn start(mut shmem: SharedMemory, opt_start: Option<Instant>, mut str_collection: StringCollection, mut frame_db: MemDB<FrameData>, mut zone_db: MemDB<LiteZoneData>) {
     POLLER.start(move || {
         let mut frame_data: Box<MaybeUninit<[FrameData; shmem::NUM_ENTRIES]>> = Box::new_uninit();
         let mut zone_data: Box<MaybeUninit<[ZoneData; shmem::NUM_ENTRIES]>> = Box::new_uninit();
         let mut last_time: shmem::Time = 0.0;
 
         while POLLER.running() {
+            if let Some(start) = opt_start {
+                if start.elapsed().as_secs() - LAST_QUERY.load(Ordering::Relaxed) >= 30 {
+                    info!("No keep-alive sent within the last 30 seconds. Shutting down server.");
+                    drop(shmem);
+                    std::process::exit(0);
+                }
+            }
+
             let (fd, count, missed) = unsafe {
                 let (count, missed) = shmem.frame_data.retrieve_unchecked(frame_data.get_mut().as_mut_ptr());
                 (frame_data.get_ref(), count, missed)
@@ -82,4 +92,8 @@ pub fn start(mut shmem: SharedMemory, mut str_collection: StringCollection, mut 
 
 pub fn stop() -> bool {
     POLLER.stop()
+}
+
+pub fn update_keep_alive(t: u64) {
+    LAST_QUERY.store(t, Ordering::Relaxed);
 }

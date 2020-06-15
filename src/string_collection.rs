@@ -33,7 +33,6 @@ struct Internal
     pools: UnsafeCell<Vec<Pool>>
 }
 
-#[derive(Clone)]
 pub struct Accessor(Arc<Internal>);
 pub struct StringCollection(Arc<Internal>);
 
@@ -135,6 +134,12 @@ impl Index<Key> for Accessor {
             Some(s) => s,
             None    => "???"
         }
+    }
+}
+
+impl Clone for Accessor {
+    fn clone(&self) -> Self {
+        Accessor(self.0.clone())
     }
 }
 
