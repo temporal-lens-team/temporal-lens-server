@@ -31,7 +31,7 @@ features = ["toml_format"]
 [dependencies.rocket_contrib]
 version = "0.4"
 default-features = false
-features = ["json"]
+features = ["json", "serve"]
 
 [dependencies.serde]
 version = "1.0"

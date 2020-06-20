@@ -21,8 +21,8 @@ use std::time::Instant;
 use rocket::{get, routes, State, Outcome};
 use rocket::config::{Config as RocketConfig, Environment as RocketEnv};
 use rocket::fairing::AdHoc;
-use rocket::response::content;
-use rocket_contrib::{json, json::JsonValue};
+use rocket::response::{Redirect, content};
+use rocket_contrib::{json, json::JsonValue, serve::StaticFiles};
 
 use log::{info, error, debug, warn};
 use clap::{App, Arg};
@@ -55,6 +55,11 @@ struct Managed {
 }
 
 #[get("/")]
+fn index() -> Redirect {
+    Redirect::permanent("/public/")
+}
+
+#[get("/info")]
 fn info_endpoint(state: State<Managed>) -> JsonValue {
     let (loaded, total) = state.zone_db.get_stats();
     let state = format!("{} chunks out of {} loaded", loaded, total);
@@ -242,7 +247,8 @@ fn main() {
 
     debug!("Initialization complete. Igniting rocket...");
     rocket::custom(rocket_cfg)
-        .mount("/", routes![info_endpoint, keep_alive_endpoint, shutdown_endpoint, query_frame_times, query_plots_endpoint])
+        .mount("/", routes![index, info_endpoint, keep_alive_endpoint, shutdown_endpoint, query_frame_times, query_plots_endpoint])
+        .mount("/public", StaticFiles::from("./public"))
         .manage(managed)
         .attach(AdHoc::on_request("Update keep-alive time", |r, _| {
             if let Outcome::Success(state) = r.guard::<State<Managed>>() {
