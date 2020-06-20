@@ -9,19 +9,20 @@
 			padding: 0;
 		}
 
-		.canvas {
+		.widget {
 			margin: 0;
 			padding: 0;
-			width: 100vw;
 		}
 
 		#frame-times {
+			margin: 5px 2px 5px 2px;
+			width: calc(100vw - 4px);
 			height: 10vh;
 		}
 	</style>
 </head>
 <body>
-	<canvas id="frame-times" class="canvas"></canvas>
+	<canvas id="frame-times" class="widget" data-class="FrameTimeGraph"></canvas>
     <script data-main="js/main" src="require.min.js"></script>
 </body>
 </html>
