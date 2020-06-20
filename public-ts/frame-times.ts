@@ -1,3 +1,5 @@
+import { Widget } from "./widget";
+
 function clamp(x: number, min: number, max: number) {
     if(x < min) {
         return min;
@@ -8,8 +10,7 @@ function clamp(x: number, min: number, max: number) {
     }
 }
 
-export class FrameTimeGraph {
-    private canvas: HTMLCanvasElement;
+export class FrameTimeGraph extends Widget {
     private data: number[] = [];
     private max: number = 1.0;
     private cursorMin: number = 0.0;
@@ -17,30 +18,15 @@ export class FrameTimeGraph {
     private dragOrigin: number | undefined = undefined;
 
     public constructor(canvas: HTMLCanvasElement) {
-        this.canvas = canvas;
-        this.updateSize();
+        super(canvas);
 
         //TODO: This is just for testing. Remove it.
         for(let i = 0; i < 60; i++) {
             this.data.push(Math.random());
         }
-
-        canvas.onwheel     = (ev) => this.onMouseScroll(ev);
-        canvas.onmousedown = (ev) => this.onMouseDown(ev as MouseEvent);
-        canvas.onmouseup   = (ev) => this.onMouseUp(ev as MouseEvent);
-        canvas.onmousemove = (ev) => this.onMouseMove(ev as MouseEvent);
     }
 
-    public updateSize() {
-        this.canvas.width = this.canvas.clientWidth;
-        this.canvas.height = this.canvas.clientHeight;
-    }
-
-    public render() {
-        const context = this.canvas.getContext("2d");
-        const w = this.canvas.width;
-        const h = this.canvas.height;
-
+    public renderInternal(context: CanvasRenderingContext2D, w: number, h: number) {
         const barW = Math.min(20.0, w / this.data.length);
         const spacing = (w - this.data.length * barW) / (this.data.length + 1);
 
@@ -63,47 +49,47 @@ export class FrameTimeGraph {
         context.strokeRect(this.cursorMin * w + 0.5, 0.5, this.cursorSize * w - 1.0, h - 1.0);
     }
 
-    private onMouseDown(ev: MouseEvent) {
-        if(ev.button === 0 && this.dragOrigin === undefined) {
+    protected onMouseDown(button: number, x: number, y: number) {
+        if(button === 0 && this.dragOrigin === undefined) {
             const cursorX = this.cursorMin * this.canvas.width;
-            this.dragOrigin = cursorX - ev.offsetX;
+            this.dragOrigin = cursorX - x;
         }
     }
 
-    private onMouseUp(ev: MouseEvent) {
-        if(ev.button === 0) {
+    protected onMouseUp(button: number, x: number, y: number) {
+        if(button === 0) {
             this.dragOrigin = undefined;
         }
     }
 
-    private onMouseMove(ev: MouseEvent) {
+    protected onMouseMove(x: number, y: number) {
         if(this.dragOrigin !== undefined) {
-            const cursorX = (this.dragOrigin + ev.offsetX) / this.canvas.width;
+            const cursorX = (this.dragOrigin + x) / this.canvas.width;
             this.cursorMin = clamp(cursorX, 0.0, 1.0 - this.cursorSize);
             this.render();
         }
     }
 
-    private onMouseScroll(ev: WheelEvent) {
-        let amount = ev.deltaY * 0.01;
+    protected onMouseWheel(deltaY: number) {
+        const newSize = clamp(this.cursorSize - Math.sign(deltaY) * 0.01, 0.01, 1.0);
 
-        if(this.dragOrigin === undefined && amount != 0.0) {
-            const newSize = clamp(this.cursorSize - amount, 0.01, 1.0);
+        if(newSize != this.cursorSize) {
+            const amount = this.cursorSize - newSize;
+            this.cursorSize = newSize;
 
-            if(newSize != this.cursorSize) {
-                amount = this.cursorSize - newSize;
-                this.cursorSize = newSize;
+            const end = this.cursorMin + this.cursorSize;
 
-                const end = this.cursorMin + this.cursorSize;
-
-                if(end > 1.0) {
-                    this.cursorMin -= end - 1.0;
-                } else {
-                    this.cursorMin = Math.max(this.cursorMin + amount * 0.5, 0.0);
-                }
-
-                this.render();
+            if(end > 1.0) {
+                this.cursorMin -= end - 1.0;
+            } else {
+                this.cursorMin = Math.max(this.cursorMin + amount * 0.5, 0.0);
             }
+
+            this.render();
         }
+    }
+
+    protected onMouseLeave() {
+        this.dragOrigin = undefined;
     }
 }
