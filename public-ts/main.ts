@@ -1,5 +1,7 @@
-import { FrameTimeGraph } from "./frame-times";
+import { DataProvider } from "./data";
 import { Widget } from "./widget";
+import { FrameTimeGraph } from "./frame-times";
+import { FrameDelimiterGraph } from "./frame-delimiter";
 
 type WidgetConstructor = new(canvas: HTMLCanvasElement) => Widget;
 type WidgetRegistrar = {
@@ -7,7 +9,8 @@ type WidgetRegistrar = {
 }
 
 const WIDGET_CLASSES: WidgetRegistrar = {
-    "FrameTimeGraph": FrameTimeGraph
+    "FrameTimeGraph": FrameTimeGraph,
+    "FrameDelimiterGraph": FrameDelimiterGraph
 };
 
 const WIDGETS: Map<string, Widget> = new Map();
@@ -33,11 +36,18 @@ for(const w of document.getElementsByClassName("widget")) {
     }
 }
 
-window.onresize = function() {
+window.onresize = () => {
     for(const w of WIDGETS.values()) {
         w.updateSize();
+        w.render();
     }
 };
+
+DataProvider.getInstance().setOnTimeRangeChangeCallback(() => {
+    for(const w of WIDGETS.values()) {
+        w.render();
+    }
+});
 
 for(const w of WIDGETS.values()) {
     w.render();

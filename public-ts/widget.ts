@@ -1,7 +1,7 @@
 export abstract class Widget {
     protected canvas: HTMLCanvasElement;
 
-    protected constructor(canvas: HTMLCanvasElement) {
+    protected constructor(canvas: HTMLCanvasElement, captureWheel: boolean = false) {
         this.canvas = canvas;
         this.updateSize();
 
@@ -10,11 +10,14 @@ export abstract class Widget {
         canvas.onmouseup    = (ev) => this.onMouseUp(ev.button, ev.offsetX, ev.offsetY);
         canvas.onmouseleave = (ev) => this.onMouseLeave();
 
-        canvas.onwheel = (ev) => {
-            if(ev.deltaY != 0.0) {
-                this.onMouseWheel(ev.deltaY);
-            }
-        };
+        if(captureWheel) {
+            canvas.onwheel = (ev) => {
+                if(ev.deltaY != 0.0) {
+                    this.onMouseWheel(ev.deltaY);
+                    ev.preventDefault();
+                }
+            };
+        }
     }
 
     public updateSize() {
