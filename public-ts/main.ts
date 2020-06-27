@@ -43,7 +43,7 @@ window.onresize = () => {
     }
 };
 
-DataProvider.getInstance().setOnTimeRangeChangeCallback(() => {
+DataProvider.getInstance().registerOnTimeRangeChangeCallback(() => {
     for(const w of WIDGETS.values()) {
         w.render();
     }

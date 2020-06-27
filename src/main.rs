@@ -29,7 +29,7 @@ use clap::{App, Arg};
 use fxhash::FxHashMap;
 
 const TEMPORAL_LENS_VERSION: u32 = 0x00_01_0000;
-const REST_PROTCOL_VERSION: u32 = 0x00_01_0000;
+const REST_PROTCOL_VERSION: u32 = 0x00_01_0000; //TODO: Change protocols version to simple numbers!!
 
 fn version_string(version: u32) -> String {
     let major = (version & 0xFF_00_0000) >> 24;
@@ -93,10 +93,32 @@ fn shutdown_endpoint() -> JsonValue {
     })
 }
 
+macro_rules! validate_start_end {
+    ($start:ident, $end:ident) => {
+        if $start < 0.0 {
+            return json!({
+                "status": "error",
+                "error": "query with negative start and specified end are not supported"
+            });
+        }
+    
+        if $start > $end {
+            return json!({
+                "status": "error",
+                "error": "query where start > end are not supported"
+            });
+        }
+    };
+}
+
 #[get("/data/frame-times?<start>&<end>")]
-fn query_frame_times(start: f64, end: f64, state: State<Managed>) -> JsonValue {
+fn query_frame_times(start: f64, end: Option<f64>, state: State<Managed>) -> JsonValue {
+    if let Some(actual_end) = end {
+        validate_start_end!(start, actual_end);
+    }
+
     let mut results = Vec::new();
-    state.frame_db.query(start, end, |_, r| results.push(*r));
+    state.frame_db.query(start, end, |_, r| results.push(r.data));
 
     json!({
         "status": "ok",
@@ -106,11 +128,13 @@ fn query_frame_times(start: f64, end: f64, state: State<Managed>) -> JsonValue {
 
 #[get("/data/plots?<start>&<end>")]
 fn query_plots_endpoint(start: f64, end: f64, state: State<Managed>) -> JsonValue {
+    validate_start_end!(start, end);
+
     let mut strings: FxHashMap<usize, &str> = Default::default();
     let mut thread_names: FxHashMap<usize, &str> = Default::default();
     let mut results = Vec::new();
 
-    state.zone_db.query(start, end, |k, r| {
+    state.zone_db.query(start, Some(end), |k, r| {
         strings.entry(r.data.name).or_insert_with(|| state.str_collection.get(SCKey::StaticString(r.data.name)).unwrap_or("????"));
         thread_names.entry(r.data.thread).or_insert_with(|| state.str_collection.get(SCKey::ThreadName(r.data.thread)).unwrap_or("????"));
 

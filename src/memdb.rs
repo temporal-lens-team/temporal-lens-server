@@ -27,6 +27,7 @@ struct Shared<T>
 {
     old_chunks: Vec<Chunk<T>>,
     current_chunk: Vec<TimeData<T>>,
+    max: f64
 }
 
 struct Contents<T>
@@ -133,6 +134,7 @@ impl<T: Serialize + DeserializeOwned> MemDB<T> {
                 shared: RwLock::new(Shared {
                     old_chunks: Vec::new(),
                     current_chunk: Vec::new(),
+                    max: 0.0
                 }),
 
                 loaded_chunks: Mutex::new(Vec::new()),
@@ -145,6 +147,13 @@ impl<T: Serialize + DeserializeOwned> MemDB<T> {
 
     pub fn push(&self, entry: TimeData<T>) {
         let mut contents = self.contents.shared.write().unwrap();
+        
+        if entry.time < contents.max {
+            error!("Dropping entry that is older than the last entry inserted!");
+            return;
+        }
+
+        contents.max = entry.time;
         contents.current_chunk.push(entry);
 
         let current_chunk_size = contents.current_chunk.len();
@@ -219,11 +228,14 @@ impl<T: Serialize + DeserializeOwned> MemDB<T> {
 }
 
 impl<T: Serialize + DeserializeOwned> Accessor<T> {
-    fn prepare_query(&self, min: f64, max: f64, lookup_list: &mut Vec<usize>) -> RwLockReadGuard<Shared<T>> {
+    fn prepare_query(&self, min: f64, max: Option<f64>, lookup_list: &mut Vec<usize>) -> (f64, f64, RwLockReadGuard<Shared<T>>) {
         //Load all unloaded chunks that are potentially needed
         let shared = self.contents.shared.read().unwrap();
         let now = unsafe { START_INSTANT.get_ref().elapsed().as_secs() };
         let mut should_load = false;
+
+        let min = if min < 0.0 { min + shared.max } else { min };
+        let max = max.unwrap_or(shared.max);
 
         for i in 0..shared.old_chunks.len() { //FIXME: Replace this for loop with binary search!!
             let chunk = &shared.old_chunks[i];
@@ -261,9 +273,9 @@ impl<T: Serialize + DeserializeOwned> Accessor<T> {
 
             drop(shared);
             debug!("Reloaded {} chunks from disk", num_reloaded);
-            self.contents.shared.read().unwrap() //TODO: Switch to parking_lot and use downgrade
+            (min, max, self.contents.shared.read().unwrap()) //TODO: Switch to parking_lot and use downgrade
         } else {
-            shared
+            (min, max, shared)
         }
     }
 
@@ -288,9 +300,9 @@ impl<T: Serialize + DeserializeOwned> Accessor<T> {
         }
     }
 
-    pub fn query<Func: FnMut(u64, &TimeData<T>)>(&self, min: f64, max: f64, mut callback: Func) {
+    pub fn query<Func: FnMut(u64, &TimeData<T>)>(&self, min: f64, max: Option<f64>, mut callback: Func) {
         let mut lookup_list = Vec::new(); //TODO: It sucks having to allocate everytime...
-        let access = self.prepare_query(min, max, &mut lookup_list);
+        let (min, max, access) = self.prepare_query(min, max, &mut lookup_list);
 
         for &i in &lookup_list {
             let chunk = &access.old_chunks[i];

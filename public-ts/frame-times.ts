@@ -1,16 +1,6 @@
 import { Widget } from "./widget";
 import { DataProvider } from "./data";
 
-function clamp(x: number, min: number, max: number) {
-    if(x < min) {
-        return min;
-    } else if(x > max) {
-        return max;
-    } else {
-        return x;
-    }
-}
-
 type FTMetrics = {
     width: number,
     spacing: number,
@@ -19,7 +9,7 @@ type FTMetrics = {
 };
 
 export class FrameTimeGraph extends Widget {
-    private start: number = 5; //Note: it's quite bad to remember the frame index. It will be invalid soon
+    private start: number = 5;
     private end: number = 9;
     private dragOrigin: number | undefined = undefined;
     private firstBar: number = 0;
@@ -28,6 +18,7 @@ export class FrameTimeGraph extends Widget {
 
     public constructor(canvas: HTMLCanvasElement) {
         super(canvas, true);
+        DataProvider.getInstance().registerAutoscrollCallback(() => this.autoscrollCallback());
     }
 
     private getMetrics(): FTMetrics {
@@ -48,25 +39,41 @@ export class FrameTimeGraph extends Widget {
     }
 
     public renderInternal(context: CanvasRenderingContext2D, w: number, h: number) {
-        const data = DataProvider.getInstance().getFrameData();
+        const dataProvider = DataProvider.getInstance();
         const m = this.getMetrics();
 
-        let x = m.spacing;
         context.clearRect(0.0, 0.0, w, h);
         context.strokeStyle = "none";
         context.fillStyle = "#0080ff";
 
         let max = 0.0;
-        for(let i = this.firstBar; i < this.lastBar; i++) {
-            const val = data[i].end - data[i].start;
+        let x = m.spacing;
+        let firstBar = this.firstBar;
+        let lastBar = this.lastBar;
 
-            if(val > max) {
-                max = val;
+        while(firstBar < lastBar && dataProvider.getFrameInfo(firstBar) === undefined) {
+            firstBar++;
+            x += m.width + m.spacing;
+        }
+
+        for(let i = firstBar; i < lastBar; i++) {
+            const frameInfo = dataProvider.getFrameInfo(i);
+
+            if(frameInfo === undefined) {
+                lastBar = i;
+                break;
+            } else {
+                const val = frameInfo.end - frameInfo.start;
+
+                if(val > max) {
+                    max = val;
+                }
             }
         }
 
-        for(let i = this.firstBar; i < this.lastBar; i++) {
-            const val = data[i].end - data[i].start;
+        for(let i = firstBar; i < lastBar; i++) {
+            const frameInfo = dataProvider.getFrameInfo(i);
+            const val = frameInfo.end - frameInfo.start;
             const barH = val * h / max;
 
             context.fillRect(x, h - barH, m.width, barH);
@@ -162,12 +169,27 @@ export class FrameTimeGraph extends Widget {
     }
 
     private updateTimeRange() {
-        //Note that calling this function will also re-render every widgets, inluding this graph
-        const dataProvider = DataProvider.getInstance();
-        const frameData = dataProvider.getFrameData();
-        const minIdx = Math.max(this.start, 0);
-        const maxIdx = Math.min(this.end, frameData.length - 1);
+        //If setFrameRange succeeds, every widgets inluding this graph will be rendered automatically.
 
-        dataProvider.setTimeRange(frameData[Math.floor(minIdx)].start, frameData[Math.floor(maxIdx)].end);
+        if(!DataProvider.getInstance().setFrameRange(Math.floor(this.start), Math.floor(this.end))) {
+            this.render();
+        }
+    }
+
+    private autoscrollCallback() {
+        let dp = DataProvider.getInstance();
+
+        if(dp.isAutoScrollEnabled()) {
+            let viewWidth = this.end - this.start;
+            let numBars = this.lastBar - this.firstBar;
+
+            this.lastBar = dp.lastFrameNumber();
+            this.firstBar = this.lastBar - numBars;
+
+            this.end = this.lastBar - 1;
+            this.start = this.end - viewWidth;
+
+            this.updateTimeRange();
+        }
     }
 }

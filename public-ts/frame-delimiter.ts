@@ -25,11 +25,11 @@ export class FrameDelimiterGraph extends Widget {
                 e = Math.floor((e * w) - 1.0);
 
                 const lineW = e - s;
-                let text = "Frame " + entry.id;
+                let text = "Frame " + entry.number;
                 let textW = context.measureText(text).width;
 
                 if(textW > lineW - 12.0) {
-                    text = entry.id.toString();
+                    text = entry.number.toString();
                     textW = context.measureText(text).width;
 
                     if(textW > lineW - 12.0) {
