@@ -2,6 +2,8 @@ import { DataProvider } from "./data";
 import { Widget } from "./widget";
 import { FrameTimeGraph } from "./frame-times";
 import { FrameDelimiterGraph } from "./frame-delimiter";
+import { ZoneFlameGraph } from "./zone-flame-graph";
+import { setSVG, loadDocumentSVGs } from "./svg-manager";
 
 type WidgetConstructor = new(canvas: HTMLCanvasElement) => Widget;
 type WidgetRegistrar = {
@@ -10,7 +12,8 @@ type WidgetRegistrar = {
 
 const WIDGET_CLASSES: WidgetRegistrar = {
     "FrameTimeGraph": FrameTimeGraph,
-    "FrameDelimiterGraph": FrameDelimiterGraph
+    "FrameDelimiterGraph": FrameDelimiterGraph,
+    "ZoneFlameGraph": ZoneFlameGraph
 };
 
 const WIDGETS: Map<string, Widget> = new Map();
@@ -52,3 +55,25 @@ DataProvider.getInstance().registerOnTimeRangeChangeCallback(() => {
 for(const w of WIDGETS.values()) {
     w.render();
 }
+
+loadDocumentSVGs();
+
+const frameTimesWidget = WIDGETS.get("frame-times") as FrameTimeGraph;
+const playPauseButton = document.getElementById("play-pause") as HTMLButtonElement;
+
+playPauseButton.onclick = () => {
+    const dp = DataProvider.getInstance();
+    const en = !dp.isAutoScrollEnabled();
+
+    dp.setAutoScrollEnabled(en);
+    setSVG(playPauseButton, en ? "svg/pause.svg" : "svg/play.svg");
+};
+
+frameTimesWidget.registerUserScrollCallback(() => {
+    const dp = DataProvider.getInstance();
+
+    if(dp.isAutoScrollEnabled()) {
+        dp.setAutoScrollEnabled(false);
+        setSVG(playPauseButton, "svg/play.svg");
+    }
+});

@@ -15,10 +15,15 @@ export class FrameTimeGraph extends Widget {
     private firstBar: number = 0;
     private lastBar: number = 60;
     private soe: boolean = false;
+    private userScrollCallbacks: VoidFunction[] = [];
 
     public constructor(canvas: HTMLCanvasElement) {
         super(canvas, true);
         DataProvider.getInstance().registerAutoscrollCallback(() => this.autoscrollCallback());
+    }
+
+    public registerUserScrollCallback(vf: VoidFunction) {
+        this.userScrollCallbacks.push(vf);
     }
 
     private getMetrics(): FTMetrics {
@@ -93,6 +98,10 @@ export class FrameTimeGraph extends Widget {
             const m = this.getMetrics();
 
             if(x >= m.localStart && x <= m.localEnd) {
+                for(const cb of this.userScrollCallbacks) {
+                    cb();
+                }
+
                 this.dragOrigin = m.localStart - x;
             }
         }

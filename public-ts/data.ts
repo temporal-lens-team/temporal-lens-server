@@ -1,7 +1,20 @@
+import { request } from "./common";
+
 type JSONFrameInfo = {
     number: number,
     duration: number,
     end: number
+};
+
+type JSONZoneInfo = {
+    entry_id: number,
+    zone_uid: number,
+    color   : number,
+    end     : number,
+    duration: number,
+    depth   : number,
+    name    : number,
+    thread  : number
 };
 
 export class FrameInfo {
@@ -18,6 +31,39 @@ export class FrameInfo {
     }
 };
 
+export class ZoneInfo {
+    public entry_id: number;
+    public zone_uid: number;
+    public color   : number;
+    public start   : number;
+    public end     : number;
+    public duration: number;
+    public depth   : number;
+
+    private name: number;
+    private thread: number;
+
+    public constructor(orig: JSONZoneInfo) {
+        this.entry_id = orig.entry_id;
+        this.zone_uid = orig.zone_uid;
+        this.color    = orig.color;
+        this.start    = orig.end - orig.duration * 1e-9;
+        this.end      = orig.end;
+        this.duration = orig.duration;
+        this.depth    = orig.depth;
+        this.name     = orig.name;
+        this.thread   = orig.thread;
+    }
+
+    public getZoneName(): string | undefined {
+        return DataProvider.getInstance().getString(this.name);
+    }
+
+    public getThreadName(): string | undefined {
+        return DataProvider.getInstance().getThreadName(this.thread);
+    }
+}
+
 export type TimeRange = {
     min: number,
     max: number
@@ -28,16 +74,16 @@ type FrameDataQueryResult = {
     status: string
 }
 
-function request(url: string, method: string = "GET"): Promise<string> {
-    return new Promise((resolve, reject) => {
-        let req = new XMLHttpRequest();
+type StringMap = {
+    [key: string]: string
+};
 
-        req.open(method, url);
-        req.onload = () => resolve(req.responseText);
-        req.onerror = () => reject(new Error("XMLHttpRequest error: " + req.statusText));
-        req.send();
-    });
-}
+type ZoneDataQueryResult = {
+    status: string,
+    strings: StringMap,
+    thread_names: StringMap,
+    results: JSONZoneInfo[]
+};
 
 export class DataProvider {
     private static instance: DataProvider | undefined = undefined;
@@ -45,10 +91,13 @@ export class DataProvider {
     private timeRange: TimeRange = { min: 0.25, max: 0.25 + 3.0 / 60.0 };
     private onTimeRangeChange: VoidFunction[] = [];
     private autoscrollCallbacks: VoidFunction[] = [];
-    private autoScrollInterval: number | undefined;
+    private autoScrollInterval: number | undefined = undefined;
+    private strings: Map<number, string> = new Map();
+    private threadNames: Map<number, string> = new Map();
+    private zoneData: ZoneInfo[] = []; //TODO: One per thread
 
     private constructor() {
-        this.autoScrollInterval = setInterval(() => this.autoscrollPoller(), 100);
+        this.setAutoScrollEnabled(true);
     }
 
     public static getInstance(): DataProvider {
@@ -75,9 +124,7 @@ export class DataProvider {
         this.timeRange.min = min;
         this.timeRange.max = max;
 
-        for(let callback of this.onTimeRangeChange) {
-            callback();
-        }
+        this.fetchZoneData(min, max);
     }
 
     public setFrameRange(min: number, max: number): boolean {
@@ -123,7 +170,7 @@ export class DataProvider {
     private async autoscrollPoller() {
         await this.fetchFrameData(-5.0); //TODO: Determine best duration automatically
 
-        for(let callback of this.autoscrollCallbacks) {
+        for(const callback of this.autoscrollCallbacks) {
             callback();
         }
     }
@@ -166,5 +213,62 @@ export class DataProvider {
         }
 
         return this.frameData[this.frameData.length - 1].number;
+    }
+
+    public setAutoScrollEnabled(enabled: boolean) {
+        if(enabled && this.autoScrollInterval === undefined) {
+            this.autoScrollInterval = setInterval(() => this.autoscrollPoller(), 100);
+        } else if(!enabled && this.autoScrollInterval !== undefined) {
+            clearInterval(this.autoScrollInterval);
+            this.autoScrollInterval = undefined;
+        }
+    }
+
+    private async fetchZoneData(start: number, end: number) {
+        let data;
+
+        try {
+            data = JSON.parse(await request("/data/plots?start=" + start + "&end=" + end));
+        } catch(err) {
+            console.error(err);
+            return;
+        }
+
+        if(data.status !== "ok") {
+            console.error(data.error);
+            return;
+        }
+
+        let safeData = data as ZoneDataQueryResult;
+
+        for(const key in safeData.strings) {
+            this.strings.set(parseInt(key), safeData.strings[key]);
+        }
+
+        for(const key in safeData.thread_names) {
+            this.threadNames.set(parseInt(key), safeData.thread_names[key]);
+        }
+
+        this.zoneData.length = 0;
+
+        for(const zd of safeData.results) {
+            this.zoneData.push(new ZoneInfo(zd));
+        }
+
+        for(const callback of this.onTimeRangeChange) {
+            callback();
+        }
+    }
+
+    public getString(id: number): string | undefined {
+        return this.strings.get(id);
+    }
+
+    public getThreadName(id: number): string | undefined {
+        return this.threadNames.get(id);
+    }
+
+    public getZoneData(): ZoneInfo[] {
+        return this.zoneData;
     }
 }
