@@ -95,6 +95,8 @@ export class DataProvider {
     private strings: Map<number, string> = new Map();
     private threadNames: Map<number, string> = new Map();
     private zoneData: ZoneInfo[] = []; //TODO: One per thread
+    private avgFrameDuration: number = 1.0 / 60.0;
+    private lastFrameCount: number = 60; //This should certainly not be hard-coded like this. This should be set by the FrameTime widget!
 
     private constructor() {
         this.setAutoScrollEnabled(true);
@@ -168,7 +170,7 @@ export class DataProvider {
     }
 
     private async autoscrollPoller() {
-        await this.fetchFrameData(-5.0); //TODO: Determine best duration automatically
+        await this.fetchFrameData(this.avgFrameDuration * this.lastFrameCount * -1.5);
 
         for(const callback of this.autoscrollCallbacks) {
             callback();
@@ -196,10 +198,16 @@ export class DataProvider {
         }
 
         let safeData = data as FrameDataQueryResult;
+        let afd = 0.0;
         this.frameData.length = 0;
 
         for(let fi of safeData.results) {
+            afd += fi.duration * 1e-9;
             this.frameData.push(new FrameInfo(fi));
+        }
+
+        if(safeData.results.length >= 10) {
+            this.avgFrameDuration = afd / safeData.results.length;
         }
     }
 

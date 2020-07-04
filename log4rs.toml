@@ -14,4 +14,10 @@ appenders = ["stdout"]
 
 [loggers]
 [loggers.hyper]
-level = "info"
+level = "warn"
+
+[loggers.rocket]
+level = "warn"
+
+[loggers._]
+level = "warn"

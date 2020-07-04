@@ -19,8 +19,11 @@ pub fn start(mut shmem: SharedMemory, opt_start: Option<Instant>, mut str_collec
         let mut frame_data: Box<MaybeUninit<[FrameData; shmem::NUM_ENTRIES]>> = Box::new_uninit();
         let mut zone_data: Box<MaybeUninit<[ZoneData; shmem::NUM_ENTRIES]>> = Box::new_uninit();
         let mut last_time: shmem::Time = 0.0;
+        let mut counter = 0;
 
         while POLLER.running() {
+            let mut total_data_retrieved = 0;
+
             if let Some(start) = opt_start {
                 if start.elapsed().as_secs() - LAST_QUERY.load(Ordering::Relaxed) >= 30 {
                     info!("No keep-alive sent within the last 30 seconds. Shutting down server.");
@@ -46,6 +49,8 @@ pub fn start(mut shmem: SharedMemory, opt_start: Option<Instant>, mut str_collec
                     data: *fdi
                 });
             }
+
+            total_data_retrieved += count;
 
             let (zd, count, missed) = unsafe {
                 let (count, missed) = shmem.zone_data.retrieve_unchecked(zone_data.get_mut().as_mut_ptr());
@@ -83,9 +88,21 @@ pub fn start(mut shmem: SharedMemory, opt_start: Option<Instant>, mut str_collec
                 zone_db.push(entry); //Is that good or is it better to do it all at once?
             }
 
+            total_data_retrieved += count;
             frame_db.unload_old_chunks();
             zone_db.unload_old_chunks();
-            std::thread::sleep(Duration::from_millis(10));
+            
+            if total_data_retrieved <= 0 {
+                std::thread::sleep(Duration::from_millis(10));
+                counter = 0;
+            } else {
+                counter += 1;
+
+                if counter >= 4 {
+                    counter = 0;
+                    std::thread::yield_now();
+                }
+            }
         }
     });
 }

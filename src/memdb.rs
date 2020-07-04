@@ -234,20 +234,34 @@ impl<T: Serialize + DeserializeOwned> Accessor<T> {
         let now = unsafe { START_INSTANT.get_ref().elapsed().as_secs() };
         let mut should_load = false;
 
+        //Compute absolute min and max if needed
         let min = if min < 0.0 { min + shared.max } else { min };
         let max = max.unwrap_or(shared.max);
 
-        for i in 0..shared.old_chunks.len() { //FIXME: Replace this for loop with binary search!!
+        //Determine first chunk
+        let first_chunk;
+        if shared.old_chunks.len() == 0 || min <= shared.old_chunks[0].max {
+            first_chunk = 0;
+        } else if min > shared.old_chunks.last().unwrap().max {
+            first_chunk = shared.old_chunks.len();
+        } else {
+            first_chunk = Self::binary_search_chunk(&shared.old_chunks, min);
+        }
+
+        //Search into old_chunks, caller will take care of the current chunk
+        for i in first_chunk..shared.old_chunks.len() {
             let chunk = &shared.old_chunks[i];
 
-            if chunk.min <= max && chunk.max >= min {
-                if chunk.data.is_none() {
-                    should_load = true;
-                }
-
-                lookup_list.push(i);
-                chunk.last_access.store(now, Ordering::Relaxed);
+            if chunk.min > max {
+                break;
             }
+
+            if chunk.data.is_none() {
+                should_load = true;
+            }
+
+            lookup_list.push(i);
+            chunk.last_access.store(now, Ordering::Relaxed);
         }
 
         if should_load {
@@ -290,6 +304,27 @@ impl<T: Serialize + DeserializeOwned> Accessor<T> {
 
             if data[half].time >= min {
                 if data[half - 1].time < min {
+                    return half;
+                }
+
+                b = half;
+            } else {
+                a = half;
+            }
+        }
+    }
+
+    ///Returns i such that data[i].max >= min and data[i - 1].max < min
+    ///Careful, as it assumes that min > data[0].max
+    fn binary_search_chunk(data: &[Chunk<T>], min: f64) -> usize {
+        let mut a = 0;
+        let mut b = data.len();
+
+        loop {
+            let half = (a + b) >> 1;
+
+            if data[half].max >= min {
+                if data[half - 1].max < min {
                     return half;
                 }
 

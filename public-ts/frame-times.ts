@@ -149,7 +149,7 @@ export class FrameTimeGraph extends Widget {
                     didSomething = true;
                 }
             } else {
-                if(this.start < this.end) {
+                if(this.start < this.end - 1) {
                     this.start += 1;
                     didSomething = true;
                 }
