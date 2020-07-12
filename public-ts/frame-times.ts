@@ -1,204 +1,119 @@
 import { Widget } from "./widget";
 import { DataProvider } from "./data";
 
-type FTMetrics = {
-    width: number,
-    spacing: number,
-    localStart: number,
-    localEnd: number
-};
-
 export class FrameTimeGraph extends Widget {
-    private start: number = 5;
-    private end: number = 9;
-    private dragOrigin: number | undefined = undefined;
-    private firstBar: number = 0;
-    private lastBar: number = 60;
-    private soe: boolean = false;
-    private userScrollCallbacks: VoidFunction[] = [];
+    private viewStart: number | undefined = undefined;
+    private viewEnd: number = 0.0;
+    private dragingView: boolean = false;
+    private drag1: number = 0.0;
+    private drag2: number = 0.0;
 
     public constructor(canvas: HTMLCanvasElement) {
-        super(canvas, true);
-        DataProvider.getInstance().registerAutoscrollCallback(() => this.autoscrollCallback());
-    }
-
-    public registerUserScrollCallback(vf: VoidFunction) {
-        this.userScrollCallbacks.push(vf);
-    }
-
-    private getMetrics(): FTMetrics {
-        const w = this.canvas.width;
-        const numBars = this.lastBar - this.firstBar;
-        const width = Math.min(10.0, w / numBars);
-        const spacing = (w - numBars * width) / (numBars + 1);
-
-        const localStart = (this.start - this.firstBar) * (width + spacing) + spacing;
-        const localEnd = (this.end + 1.0 - this.firstBar) * (width + spacing);
-
-        return {
-            width: width,
-            spacing: spacing,
-            localStart: localStart,
-            localEnd: localEnd
-        }
+        super(canvas);
     }
 
     public renderInternal(context: CanvasRenderingContext2D, w: number, h: number) {
         const dataProvider = DataProvider.getInstance();
-        const m = this.getMetrics();
+
+        const numBars = 60;
+        const width = Math.min(10.0, w / numBars);
+        const spacing = (w - numBars * width) / (numBars + 1);
 
         context.clearRect(0.0, 0.0, w, h);
         context.strokeStyle = "none";
         context.fillStyle = "#0080ff";
 
         let max = 0.0;
-        let x = m.spacing;
-        let firstBar = this.firstBar;
-        let lastBar = this.lastBar;
+        let x = spacing;
 
-        while(firstBar < lastBar && dataProvider.getFrameInfo(firstBar) === undefined) {
-            firstBar++;
-            x += m.width + m.spacing;
-        }
-
-        for(let i = firstBar; i < lastBar; i++) {
+        for(let i = 0; i < numBars; i++) {
             const frameInfo = dataProvider.getFrameInfo(i);
-
             if(frameInfo === undefined) {
-                lastBar = i;
                 break;
-            } else {
-                const val = frameInfo.end - frameInfo.start;
+            }
 
-                if(val > max) {
-                    max = val;
-                }
+            const val = frameInfo.end - frameInfo.start;
+            if(val > max) {
+                max = val;
             }
         }
 
-        for(let i = firstBar; i < lastBar; i++) {
+        for(let i = 0; i < numBars; i++) {
             const frameInfo = dataProvider.getFrameInfo(i);
+            if(frameInfo === undefined) {
+                break;
+            }
+
             const val = frameInfo.end - frameInfo.start;
             const barH = val * h / max;
 
-            context.fillRect(x, h - barH, m.width, barH);
-            x += m.width + m.spacing;
+            context.fillRect(x, h - barH, width, barH);
+            x += width + spacing;
         }
 
-        context.lineWidth = 1.0;
-        context.strokeStyle = "#808080";
-        context.fillStyle = "rgba(128, 128, 128, 0.5)";
+        if(this.viewStart !== undefined) {
+            context.lineWidth = 1.0;
+            context.strokeStyle = "#808080";
+            context.fillStyle = "rgba(128, 128, 128, 0.5)";
 
-        context.fillRect(m.localStart, 0.0, m.localEnd - m.localStart, h);
-        context.strokeRect(m.localStart + 0.5, 0.5, m.localEnd - m.localStart - 1.0, h - 1.0);
+            const vs = this.viewStart * (width + spacing) + spacing;
+            const vw = (this.viewEnd + 1) * (width + spacing) - vs;
+
+            context.fillRect(vs, 0.0, vw, h);
+            context.strokeRect(vs + 0.5, 0.5, vw - 1.0, h - 1.0);
+        }
+    }
+
+    private pos2frame(x: number): number {
+        const numBars = 60;
+        const width = Math.min(10.0, this.canvas.width / numBars);
+        const spacing = (this.canvas.width - numBars * width) / (numBars + 1);
+        const ret = (x - spacing) / (width + spacing);
+
+        if(ret < 0.0) {
+            return 0.0;
+        } else if(ret > numBars - 1) {
+            return numBars - 1;
+        } else {
+            return ret;
+        }
     }
 
     protected onMouseDown(button: number, x: number, y: number) {
-        if(button === 0 && this.dragOrigin === undefined) {
-            const m = this.getMetrics();
+        if(button === 0 && !this.dragingView) {
+            this.dragingView = true;
+            this.drag1       = this.pos2frame(x);
+            this.drag2       = this.drag1;
+            this.viewStart   = Math.floor(this.drag1);
+            this.viewEnd     = this.viewStart;
 
-            if(x >= m.localStart && x <= m.localEnd) {
-                for(const cb of this.userScrollCallbacks) {
-                    cb();
-                }
-
-                this.dragOrigin = m.localStart - x;
-            }
+            this.render();
         }
     }
 
     protected onMouseUp(button: number, x: number, y: number) {
-        if(button === 0) {
-            this.realign();
+        if(button === 0 && this.dragingView) {
+            this.dragingView = false;
         }
     }
 
     protected onMouseMove(x: number, y: number) {
-        if(this.dragOrigin !== undefined) {
-            const localStart = this.dragOrigin + x;
-            const m = this.getMetrics();
+        if(this.viewStart !== undefined && this.dragingView) {
+            this.drag2 = this.pos2frame(x);
 
-            const start = (localStart - m.spacing) / (m.width + m.spacing) + this.firstBar;
-            const w = this.end - this.start;
+            if(this.drag1 <= this.drag2) {
+                this.viewStart = Math.floor(this.drag1);
+                this.viewEnd = Math.floor(this.drag2);
+            } else {
+                this.viewStart = Math.floor(this.drag2);
+                this.viewEnd = Math.floor(this.drag1);
+            }
 
-            this.start = start;
-            this.end = start + w;
             this.render();
-        }
-    }
-
-    protected onMouseWheel(deltaY: number) {
-        if(this.dragOrigin !== undefined) {
-            return;
-        }
-
-        let didSomething = false;
-
-        if(deltaY < 0.0) { //<=> Increase the window size
-            if(this.soe) {
-                this.start -= 1;
-            } else {
-                this.end += 1;
-            }
-
-            didSomething = true;
-        } else { //<=> Decrease the window size
-            if(this.soe) {
-                if(this.end > this.start) {
-                    this.end -= 1;
-                    didSomething = true;
-                }
-            } else {
-                if(this.start < this.end - 1) {
-                    this.start += 1;
-                    didSomething = true;
-                }
-            }
-        }
-
-        if(didSomething) {
-            this.soe = !this.soe;
-            this.updateTimeRange();
         }
     }
 
     protected onMouseLeave() {
-        this.realign();
-    }
-
-    private realign() {
-        if(this.dragOrigin !== undefined) {
-            const w = this.end - this.start;
-            this.start = Math.round(this.start);
-            this.end = this.start + w;
-
-            this.dragOrigin = undefined;
-            this.updateTimeRange();
-        }
-    }
-
-    private updateTimeRange() {
-        //If setFrameRange succeeds, every widgets inluding this graph will be rendered automatically.
-
-        if(!DataProvider.getInstance().setFrameRange(Math.floor(this.start), Math.floor(this.end))) {
-            this.render();
-        }
-    }
-
-    private autoscrollCallback() {
-        let dp = DataProvider.getInstance();
-
-        if(dp.isAutoScrollEnabled()) {
-            let viewWidth = this.end - this.start;
-            let numBars = this.lastBar - this.firstBar;
-
-            this.lastBar = dp.lastFrameNumber();
-            this.firstBar = this.lastBar - numBars;
-
-            this.end = this.lastBar - 1;
-            this.start = this.end - viewWidth;
-
-            this.updateTimeRange();
-        }
+        this.dragingView = false;
     }
 }

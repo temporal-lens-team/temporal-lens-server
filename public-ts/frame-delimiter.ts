@@ -8,7 +8,7 @@ export class FrameDelimiterGraph extends Widget {
 
     protected renderInternal(context: CanvasRenderingContext2D, w: number, h: number) {
         context.clearRect(0.0, 0.0, w, h);
-        context.fillStyle = "#808080";
+        context.fillStyle = "#f0f0f0";
         context.font = "12px monospace";
         context.textBaseline = "middle";
 

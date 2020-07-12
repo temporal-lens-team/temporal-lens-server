@@ -111,14 +111,33 @@ macro_rules! validate_start_end {
     };
 }
 
-#[get("/data/frame-times?<start>&<end>")]
-fn query_frame_times(start: f64, end: Option<f64>, state: State<Managed>) -> JsonValue {
+#[get("/data/frame-times/query-range?<start>&<end>")]
+fn query_frame_times_range(start: f64, end: Option<f64>, state: State<Managed>) -> JsonValue {
     if let Some(actual_end) = end {
         validate_start_end!(start, actual_end);
     }
 
     let mut results = Vec::new();
     state.frame_db.query(start, end, |_, r| results.push(r.data));
+
+    json!({
+        "status": "ok",
+        "results": results
+    })
+}
+
+
+#[get("/data/frame-times/query-count?<t>&<count>")]
+fn query_frame_times_count(t: f64, count: usize, state: State<Managed>) -> JsonValue {
+    if t < 0.0 {
+        return json!({
+            "status": "error",
+            "error": "query with negative start and specified end are not supported"
+        });
+    }
+
+    let mut results = Vec::new();
+    state.frame_db.query_count(t, count, |r| results.push(r.data));
 
     json!({
         "status": "ok",
@@ -146,6 +165,16 @@ fn query_plots_endpoint(start: f64, end: f64, state: State<Managed>) -> JsonValu
         "strings": strings,
         "thread_names": thread_names,
         "results": results
+    })
+}
+
+#[get("/data/zones-end")]
+fn query_zones_end(state: State<Managed>) -> JsonValue {
+    let end = state.zone_db.get_max_time();
+
+    json!({
+        "status": "ok",
+        "end": end
     })
 }
 
@@ -244,8 +273,8 @@ fn main() {
     }
 
     let str_collection = StringCollection::new();
-    let frame_db = unsafe { MemDB::new(frame_db_dir) };
-    let zone_db = unsafe { MemDB::new(zone_db_dir) }; //Safe because we called it after `memdb::init()`
+    let frame_db = unsafe { MemDB::new("frame_db".to_string(), frame_db_dir) };
+    let zone_db = unsafe { MemDB::new("zone_db".to_string(), zone_db_dir) }; //Safe because we called it after `memdb::init()`
     let start_instant = Instant::now();
 
     let managed = Managed {
@@ -271,7 +300,7 @@ fn main() {
 
     debug!("Initialization complete. Igniting rocket...");
     rocket::custom(rocket_cfg)
-        .mount("/", routes![index, info_endpoint, keep_alive_endpoint, shutdown_endpoint, query_frame_times, query_plots_endpoint])
+        .mount("/", routes![index, info_endpoint, keep_alive_endpoint, shutdown_endpoint, query_frame_times_range, query_frame_times_count, query_plots_endpoint, query_zones_end])
         .mount("/public", StaticFiles::from("./public"))
         .manage(managed)
         .attach(AdHoc::on_request("Update keep-alive time", |r, _| {

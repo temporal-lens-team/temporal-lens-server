@@ -34,7 +34,8 @@ struct Contents<T>
 {
     shared: RwLock<Shared<T>>,
     loaded_chunks: Mutex<Vec<usize>>,
-    save_path: PathBuf
+    save_path: PathBuf,
+    name: String
 }
 
 pub struct Accessor<T>
@@ -128,7 +129,7 @@ impl<T: Serialize + DeserializeOwned> MemDB<T> {
     ///write to this folder. It is the user's responsibility to
     ///erase all files contained in this folder before calling
     ///this function.
-    pub unsafe fn new(save_path: PathBuf) -> Self {
+    pub unsafe fn new(name: String, save_path: PathBuf) -> Self {
         Self {
             contents: Arc::new(Contents {
                 shared: RwLock::new(Shared {
@@ -138,7 +139,8 @@ impl<T: Serialize + DeserializeOwned> MemDB<T> {
                 }),
 
                 loaded_chunks: Mutex::new(Vec::new()),
-                save_path
+                save_path,
+                name
             }),
 
             unload_list: Vec::new()
@@ -159,7 +161,7 @@ impl<T: Serialize + DeserializeOwned> MemDB<T> {
         let current_chunk_size = contents.current_chunk.len();
 
         if current_chunk_size % 1000 == 0 {
-            debug!("Current chunk contains {} elements", current_chunk_size);
+            debug!("Current chunk of {} contains {} elements", self.contents.name, current_chunk_size);
         }
 
         if current_chunk_size >= SWAP_THRESHOLD {
@@ -335,6 +337,156 @@ impl<T: Serialize + DeserializeOwned> Accessor<T> {
         }
     }
 
+    fn with_chunk<U, Func: FnOnce(&Vec<TimeData<T>>) -> U>(&self, cid: usize, func: Func) -> Option<U> {
+        let now = unsafe { START_INSTANT.get_ref().elapsed().as_secs() };
+        let shared = self.contents.shared.read().unwrap();
+
+        if cid >= shared.old_chunks.len() {
+            Some(func(&shared.current_chunk))
+        } else if let Some(data) = shared.old_chunks[cid].data.as_ref() {
+            shared.old_chunks[cid].last_access.store(now, Ordering::Relaxed);
+            Some(func(data))
+        } else {
+            drop(shared);
+
+            let mut shared = self.contents.shared.write().unwrap();
+            let chunk = &mut shared.old_chunks[cid];
+
+            if chunk.data.is_none() {
+                let mut path = self.contents.save_path.clone();
+                path.push(cid.to_string());
+
+                if let Err(err) = chunk.try_loading_from(path) {
+                    error!("Could not reload chunk: {:?}", err);
+                    return None;
+                }
+
+                self.contents.loaded_chunks.lock().unwrap().push(cid);
+            }
+
+            chunk.last_access.store(now, Ordering::Relaxed);
+            drop(chunk);
+            drop(shared);
+
+            let shared = self.contents.shared.read().unwrap();
+            Some(func(shared.old_chunks[cid].data.as_ref().unwrap()))
+        }
+    }
+
+    fn query_left(&self, cid: usize, t: f64, max: usize, dst: &mut Vec<TimeData<T>>) -> usize where T: Copy {
+        self.with_chunk(cid, move |chunk| {
+            if chunk.is_empty() || t <= chunk[0].time {
+                return 0;
+            }
+
+            let chunk_sz = chunk.len();
+            let end      = if t >= chunk[chunk_sz - 1].time { chunk_sz } else { Self::binary_search(chunk.as_slice(), t) };
+            let cnt      = usize::min(end, max);
+            let start    = end - cnt;
+
+            for i in (start..end).rev() {
+                dst.push(chunk[i]);
+            }
+
+            cnt
+        }).unwrap_or(0)
+    }
+
+    fn query_right(&self, cid: usize, t: f64, max: usize, dst: &mut Vec<TimeData<T>>) -> usize where T: Copy {
+        self.with_chunk(cid, move |chunk| {
+            let chunk_sz = chunk.len();
+            if chunk_sz <= 0 || t >= chunk[chunk_sz - 1].time {
+                return 0;
+            }
+
+            let start = if t < chunk[0].time { 0 } else { Self::binary_search(chunk.as_slice(), t) };
+            let cnt   = usize::min(chunk_sz - start, max);
+            let end   = start + cnt;
+
+            for i in start..end {
+                dst.push(chunk[i]);
+            }
+
+            cnt
+        }).unwrap_or(0)
+    }
+
+    pub fn query_count<Func: FnMut(&TimeData<T>)>(&self, t: f64, count: usize, mut callback: Func) where T: Copy {
+        let shared = self.contents.shared.read().unwrap();
+        let chunk_count = shared.old_chunks.len();
+
+        let first_chunk;
+        if chunk_count <= 0 || t <= shared.old_chunks[0].max {
+            first_chunk = 0;
+        } else if t > shared.old_chunks[chunk_count - 1].max {
+            first_chunk = chunk_count;
+        } else {
+            first_chunk = Self::binary_search_chunk(&shared.old_chunks, t);
+        }
+
+        drop(shared);
+
+        let mut remaining_left = count / 2;
+        let mut remaining_right = count - remaining_left;
+        let mut left = Vec::with_capacity(remaining_left);
+        let mut right = Vec::with_capacity(remaining_right);
+        let mut cid = first_chunk;
+        let mut left_limit_hit = false;
+
+        if remaining_left > 0 {
+            loop {
+                remaining_left -= self.query_left(cid as usize, t, remaining_left, &mut left);
+
+                if remaining_left <= 0 {
+                    break;
+                }
+
+                if cid <= 0 {
+                    left_limit_hit = true;
+                    break;
+                }
+
+                cid -= 1;
+            }
+        }
+
+        remaining_right += remaining_left;
+        cid = first_chunk;
+
+        while remaining_right > 0 && cid <= chunk_count {
+            remaining_right -= self.query_right(cid, t, remaining_right, &mut right);
+            cid += 1;
+        }
+
+        if remaining_right > 0 && !left_limit_hit {
+            left.clear(); //We have no choice but the rebuild the entire list because we cannot resume the search
+            remaining_left = count - right.len();
+            cid = first_chunk;
+
+            loop {
+                remaining_left -= self.query_left(cid as usize, t, remaining_left, &mut left);
+
+                if remaining_left <= 0 {
+                    break;
+                }
+
+                if cid <= 0 {
+                    break;
+                }
+
+                cid -= 1;
+            }
+        }
+
+        for i in (0..left.len()).rev() {
+            callback(&left[i]);
+        }
+
+        for i in 0..right.len() {
+            callback(&right[i]);
+        }
+    }
+
     pub fn query<Func: FnMut(u64, &TimeData<T>)>(&self, min: f64, max: Option<f64>, mut callback: Func) {
         let mut lookup_list = Vec::new(); //TODO: It sucks having to allocate everytime...
         let (min, max, access) = self.prepare_query(min, max, &mut lookup_list);
@@ -381,6 +533,10 @@ impl<T: Serialize + DeserializeOwned> Accessor<T> {
                 callback(k_base | (i as u64), entry);
             }
         }
+    }
+
+    pub fn get_max_time(&self) -> f64 {
+        self.contents.shared.read().unwrap().max
     }
 
     pub fn get_stats(&self) -> (usize, usize) {

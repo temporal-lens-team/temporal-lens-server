@@ -1,9 +1,10 @@
-import { DataProvider } from "./data";
 import { Widget } from "./widget";
 import { FrameTimeGraph } from "./frame-times";
 import { FrameDelimiterGraph } from "./frame-delimiter";
 import { ZoneFlameGraph } from "./zone-flame-graph";
-import { setSVG, loadDocumentSVGs } from "./svg-manager";
+import { loadDocumentSVGs } from "./svg-manager";
+import { request } from "./common";
+import { DataProvider } from "./data";
 
 type WidgetConstructor = new(canvas: HTMLCanvasElement) => Widget;
 type WidgetRegistrar = {
@@ -46,34 +47,72 @@ window.onresize = () => {
     }
 };
 
-DataProvider.getInstance().registerOnTimeRangeChangeCallback(() => {
-    for(const w of WIDGETS.values()) {
-        w.render();
-    }
-});
-
 for(const w of WIDGETS.values()) {
     w.render();
 }
 
 loadDocumentSVGs();
 
-const frameTimesWidget = WIDGETS.get("frame-times") as FrameTimeGraph;
-const playPauseButton = document.getElementById("play-pause") as HTMLButtonElement;
+const scrollbar = document.getElementById("caret-wrapper");
+const scrollbarCaret = document.getElementById("scrollbar-caret");
+const endTime = document.getElementById("end-time");
 
-playPauseButton.onclick = () => {
-    const dp = DataProvider.getInstance();
-    const en = !dp.isAutoScrollEnabled();
-
-    dp.setAutoScrollEnabled(en);
-    setSVG(playPauseButton, en ? "svg/pause.svg" : "svg/play.svg");
+type ZonesEndResult = {
+    status: string,
+    end: number,
+    error: string
 };
 
-frameTimesWidget.registerUserScrollCallback(() => {
-    const dp = DataProvider.getInstance();
-
-    if(dp.isAutoScrollEnabled()) {
-        dp.setAutoScrollEnabled(false);
-        setSVG(playPauseButton, "svg/play.svg");
+function prefixZeroes(x: number): string {
+    if(x < 10) {
+        return "0" + x;
+    } else {
+        return x.toString();
     }
+}
+
+function formatTime(t: number): string {
+    const totalMinutes = Math.floor(t / 60);
+    const seconds = t - totalMinutes * 60;
+    const hours = Math.floor(totalMinutes / 60);
+
+    let secondsStr = seconds.toFixed(3);
+    if(seconds < 10) {
+        secondsStr = "0" + secondsStr;
+    }
+
+    return prefixZeroes(hours) + ":" + prefixZeroes(totalMinutes - hours * 60) + ":" + secondsStr;
+}
+
+async function updateScrollbar() {
+    let data: ZonesEndResult;
+
+    try {
+        data = JSON.parse(await request("/data/zones-end"));
+    } catch(err) {
+        console.error(err);
+        return;
+    }
+
+    if(data.status !== "ok") {
+        console.error(data.error);
+        return;
+    }
+
+    const tr = DataProvider.getInstance().getTimeRange();
+    const w = Math.min((tr.max - tr.min) / data.end, 1.0) * scrollbar.clientWidth;
+    scrollbarCaret.style.width = "" + w + "px";
+    
+    const x = tr.min / data.end * (scrollbar.clientWidth - scrollbarCaret.clientWidth);
+    scrollbarCaret.style.left = "" + x + "px";
+
+    endTime.innerText = formatTime(data.end);
+}
+
+setInterval(updateScrollbar, 250);
+
+DataProvider.getInstance().onZoneDataChanged.register(() => WIDGETS.get("zone-graph").render());
+DataProvider.getInstance().onFrameDataChanged.register(() => {
+    WIDGETS.get("frame-times").render();
+    WIDGETS.get("frame-delimiters").render();
 });

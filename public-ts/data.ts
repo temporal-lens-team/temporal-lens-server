@@ -1,4 +1,4 @@
-import { request } from "./common";
+import { request, SimpleEvent } from "./common";
 
 type JSONFrameInfo = {
     number: number,
@@ -87,19 +87,19 @@ type ZoneDataQueryResult = {
 
 export class DataProvider {
     private static instance: DataProvider | undefined = undefined;
-    private frameData: FrameInfo[] = [];
-    private timeRange: TimeRange = { min: 0.25, max: 0.25 + 3.0 / 60.0 };
-    private onTimeRangeChange: VoidFunction[] = [];
-    private autoscrollCallbacks: VoidFunction[] = [];
-    private autoScrollInterval: number | undefined = undefined;
+    private timeRange: TimeRange = { min: 0.0, max: 0.25 + 3.0 / 60.0 };
     private strings: Map<number, string> = new Map();
     private threadNames: Map<number, string> = new Map();
+
+    private frameData: FrameInfo[] = [];
     private zoneData: ZoneInfo[] = []; //TODO: One per thread
-    private avgFrameDuration: number = 1.0 / 60.0;
-    private lastFrameCount: number = 60; //This should certainly not be hard-coded like this. This should be set by the FrameTime widget!
+
+    public onFrameDataChanged: SimpleEvent = new SimpleEvent();
+    public onZoneDataChanged: SimpleEvent = new SimpleEvent();
 
     private constructor() {
-        this.setAutoScrollEnabled(true);
+        setTimeout(() => this.awaitInitialZoneData(), 50);
+        setTimeout(() => this.awaitInitialFrameTimes(), 100);
     }
 
     public static getInstance(): DataProvider {
@@ -114,39 +114,6 @@ export class DataProvider {
         return this.frameData;
     }
 
-    public registerOnTimeRangeChangeCallback(callback: VoidFunction) {
-        this.onTimeRangeChange.push(callback);
-    }
-
-    public registerAutoscrollCallback(callback: VoidFunction) {
-        this.autoscrollCallbacks.push(callback);
-    }
-
-    public setTimeRange(min: number, max: number) {
-        this.timeRange.min = min;
-        this.timeRange.max = max;
-
-        this.fetchZoneData(min, max);
-    }
-
-    public setFrameRange(min: number, max: number): boolean {
-        if(this.frameData.length <= 0) {
-            //TODO: ACQUIRE DATA ASYCHRONOUSLY
-            return false;
-        }
-
-        let rMin = min - this.frameData[0].number;
-        let rMax = max - this.frameData[0].number;
-
-        if(rMin < 0 || rMax >= this.frameData.length) {
-            //TODO: ACQUIRE DATA ASYCHRONOUSLY
-            return false;
-        } else {
-            this.setTimeRange(this.frameData[rMin].start, this.frameData[rMax].end);
-            return true;
-        }
-    }
-
     public getTimeRange(): TimeRange {
         return this.timeRange;
     }
@@ -156,63 +123,7 @@ export class DataProvider {
     }
 
     public getFrameInfo(frame: number): FrameInfo | undefined {
-        if(this.frameData.length <= 0) {
-            return undefined;
-        }
-
-        let i = frame - this.frameData[0].number;
-
-        if(i < 0 || i >= this.frameData.length) {
-            return undefined;
-        }
-
-        return this.frameData[i];
-    }
-
-    private async autoscrollPoller() {
-        await this.fetchFrameData(this.avgFrameDuration * this.lastFrameCount * -1.5);
-
-        for(const callback of this.autoscrollCallbacks) {
-            callback();
-        }
-    }
-
-    private async fetchFrameData(start: number, end?: number) {
-        let data;
-        let url = "/data/frame-times?start=" + start;
-
-        if(end !== undefined) {
-            url += "&end=" + end;
-        }
-
-        try {
-            data = JSON.parse(await request(url));
-        } catch(err) {
-            console.error(err);
-            return;
-        }
-
-        if(data.status !== "ok") {
-            console.error(data.error);
-            return;
-        }
-
-        let safeData = data as FrameDataQueryResult;
-        let afd = 0.0;
-        this.frameData.length = 0;
-
-        for(let fi of safeData.results) {
-            afd += fi.duration * 1e-9;
-            this.frameData.push(new FrameInfo(fi));
-        }
-
-        if(safeData.results.length >= 10) {
-            this.avgFrameDuration = afd / safeData.results.length;
-        }
-    }
-
-    public isAutoScrollEnabled(): boolean {
-        return this.autoScrollInterval !== undefined;
+        return this.frameData[frame];
     }
 
     public lastFrameNumber(): number {
@@ -223,28 +134,19 @@ export class DataProvider {
         return this.frameData[this.frameData.length - 1].number;
     }
 
-    public setAutoScrollEnabled(enabled: boolean) {
-        if(enabled && this.autoScrollInterval === undefined) {
-            this.autoScrollInterval = setInterval(() => this.autoscrollPoller(), 100);
-        } else if(!enabled && this.autoScrollInterval !== undefined) {
-            clearInterval(this.autoScrollInterval);
-            this.autoScrollInterval = undefined;
-        }
-    }
-
-    private async fetchZoneData(start: number, end: number) {
+    private async fetchZoneData(start: number, end: number): Promise<boolean> {
         let data;
 
         try {
             data = JSON.parse(await request("/data/plots?start=" + start + "&end=" + end));
         } catch(err) {
             console.error(err);
-            return;
+            return false;
         }
 
         if(data.status !== "ok") {
             console.error(data.error);
-            return;
+            return false;
         }
 
         let safeData = data as ZoneDataQueryResult;
@@ -263,9 +165,54 @@ export class DataProvider {
             this.zoneData.push(new ZoneInfo(zd));
         }
 
-        for(const callback of this.onTimeRangeChange) {
-            callback();
+        this.onZoneDataChanged.invoke();
+        return true;
+    }
+
+    private async awaitInitialZoneData() {
+        if(await this.fetchZoneData(this.timeRange.min, this.timeRange.max * 1.05)) {
+            if(this.zoneData.length > 0 && this.zoneData[this.zoneData.length - 1].end >= this.timeRange.max) {
+                return;
+            }
         }
+
+        setTimeout(() => this.awaitInitialZoneData(), 250);
+    }
+
+    private async fetchFrameTimes(t: number, count: number): Promise<boolean> {
+        let data;
+
+        try {
+            data = JSON.parse(await request("/data/frame-times/query-count?t=" + t + "&count=" + count));
+        } catch(err) {
+            console.error(err);
+            return false;
+        }
+
+        if(data.status !== "ok") {
+            console.error(data.error);
+            return false;
+        }
+
+        let safeData = data as FrameDataQueryResult;
+        this.frameData.length = 0;
+
+        for(const fd of safeData.results) {
+            this.frameData.push(new FrameInfo(fd));
+        }
+
+        this.onFrameDataChanged.invoke();
+        return true;
+    }
+
+    private async awaitInitialFrameTimes() {
+        if(await this.fetchFrameTimes(this.timeRange.min, 60)) {
+            if(this.frameData.length >= 60) {
+                return;
+            }
+        }
+
+        setTimeout(() => this.awaitInitialFrameTimes(), 250);
     }
 
     public getString(id: number): string | undefined {

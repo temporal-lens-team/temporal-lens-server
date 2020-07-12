@@ -19,3 +19,17 @@ export function absoluteURL(url: string): string {
     aElement.href = url;
     return aElement.href;
 }
+
+export class SimpleEvent {
+    private callbacks: VoidFunction[] = [];
+
+    public register(f: VoidFunction) {
+        this.callbacks.push(f);
+    }
+
+    public invoke() {
+        for(const f of this.callbacks) {
+            f();
+        }
+    }
+}
