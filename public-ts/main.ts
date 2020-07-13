@@ -1,60 +1,14 @@
-import { Widget } from "./widget";
-import { FrameTimeGraph } from "./frame-times";
-import { FrameDelimiterGraph } from "./frame-delimiter";
-import { ZoneFlameGraph } from "./zone-flame-graph";
+import { loadDocumentWidgets, getWidgetById, setWidgetsLoading } from "./widget-init";
 import { loadDocumentSVGs } from "./svg-manager";
 import { request } from "./common";
 import { DataProvider } from "./data";
 
-type WidgetConstructor = new(canvas: HTMLCanvasElement) => Widget;
-type WidgetRegistrar = {
-    [className: string]: WidgetConstructor
-}
-
-const WIDGET_CLASSES: WidgetRegistrar = {
-    "FrameTimeGraph": FrameTimeGraph,
-    "FrameDelimiterGraph": FrameDelimiterGraph,
-    "ZoneFlameGraph": ZoneFlameGraph
-};
-
-const WIDGETS: Map<string, Widget> = new Map();
-
-for(const w of document.getElementsByClassName("widget")) {
-    if(w.tagName === "CANVAS") {
-        const canvas = w as HTMLCanvasElement;
-
-        if(canvas.id.length <= 0) {
-            console.error("Found widget with no ID");
-        } else if(canvas.dataset["class"] === undefined) {
-            console.error(`Widget ${canvas.id} has no class`);
-        } else {
-            const clsName = canvas.dataset["class"];
-            const cls = WIDGET_CLASSES[clsName];
-
-            if(cls === undefined) {
-                console.error(`Widget ${canvas.id} has an invalid class name ${clsName}`);
-            } else {
-                WIDGETS.set(canvas.id, new cls(canvas));
-            }
-        }
-    }
-}
-
-window.onresize = () => {
-    for(const w of WIDGETS.values()) {
-        w.updateSize();
-        w.render();
-    }
-};
-
-for(const w of WIDGETS.values()) {
-    w.render();
-}
-
+loadDocumentWidgets();
 loadDocumentSVGs();
 
 const scrollbar = document.getElementById("caret-wrapper");
 const scrollbarCaret = document.getElementById("scrollbar-caret");
+const currentTime = document.getElementById("current-time");
 const endTime = document.getElementById("end-time");
 
 type ZonesEndResult = {
@@ -84,6 +38,9 @@ function formatTime(t: number): string {
     return prefixZeroes(hours) + ":" + prefixZeroes(totalMinutes - hours * 60) + ":" + secondsStr;
 }
 
+let scrollingOrigin: number | undefined = undefined;
+let scrollbarEnd: number = 0.0;
+
 async function updateScrollbar() {
     let data: ZonesEndResult;
 
@@ -99,20 +56,77 @@ async function updateScrollbar() {
         return;
     }
 
-    const tr = DataProvider.getInstance().getTimeRange();
-    const w = Math.min((tr.max - tr.min) / data.end, 1.0) * scrollbar.clientWidth;
-    scrollbarCaret.style.width = "" + w + "px";
-    
-    const x = tr.min / data.end * (scrollbar.clientWidth - scrollbarCaret.clientWidth);
-    scrollbarCaret.style.left = "" + x + "px";
+    if(scrollingOrigin === undefined) {
+        const tr = DataProvider.getInstance().getTimeRange();
+        const w = Math.min((tr.max - tr.min) / data.end, 1.0) * scrollbar.clientWidth;
+        scrollbarCaret.style.width = "" + w + "px";
+        
+        const x = tr.min / data.end * (scrollbar.clientWidth - scrollbarCaret.clientWidth);
+        scrollbarCaret.style.left = "" + x + "px";
+
+        scrollbarEnd = data.end;
+    }
 
     endTime.innerText = formatTime(data.end);
 }
 
 setInterval(updateScrollbar, 250);
 
-DataProvider.getInstance().onZoneDataChanged.register(() => WIDGETS.get("zone-graph").render());
+function clearLoadingAndRender(wid: string) {
+    const w = getWidgetById(wid);
+    
+    w.setLoading(false);
+    w.render();
+}
+
+DataProvider.getInstance().onZoneDataChanged.register(() => clearLoadingAndRender("zone-graph"));
+
 DataProvider.getInstance().onFrameDataChanged.register(() => {
-    WIDGETS.get("frame-times").render();
-    WIDGETS.get("frame-delimiters").render();
+    clearLoadingAndRender("frame-times");
+    clearLoadingAndRender("frame-delimiters");
 });
+
+scrollbarCaret.onmousedown = (ev) => {
+    if(ev.button === 0 && scrollingOrigin === undefined && scrollbarEnd > 0.0) {
+        const x = ev.clientX;
+        const caretX = scrollbarCaret.offsetLeft;
+        const caretW = scrollbarCaret.clientWidth;
+
+        //if(x >= caretX && x <= caretX + caretW) {
+            scrollingOrigin = caretX - x;
+            setWidgetsLoading(true);
+        //}
+    }
+};
+
+scrollbarCaret.onmousemove = (ev) => {
+    if(scrollingOrigin !== undefined) {
+        let x = scrollingOrigin + ev.clientX;
+        const xMax = scrollbar.clientWidth - scrollbarCaret.clientWidth;
+
+        if(x < 0) {
+            x = 0;
+        } else if(x > xMax) {
+            x = xMax;
+        }
+
+        scrollbarCaret.style.left = x.toString() + "px";
+        currentTime.innerText = formatTime(x / xMax * scrollbarEnd);
+    }
+};
+
+scrollbarCaret.onmouseup = (ev) => {
+    if(ev.button === 0 && scrollingOrigin !== undefined)  {
+        scrollingOrigin = undefined;
+        DataProvider.getInstance().scrollTo(scrollbarCaret.offsetLeft / (scrollbar.clientWidth - scrollbarCaret.clientWidth) * scrollbarEnd);
+    }
+};
+
+scrollbarCaret.onmouseleave = () => {
+    if(scrollingOrigin !== undefined)  {
+        scrollingOrigin = undefined;
+        DataProvider.getInstance().scrollTo(scrollbarCaret.offsetLeft / (scrollbar.clientWidth - scrollbarCaret.clientWidth) * scrollbarEnd);
+    }
+};
+
+setWidgetsLoading(true);

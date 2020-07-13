@@ -1,9 +1,10 @@
 import { Widget } from "./widget";
 import { DataProvider } from "./data";
+//import { setWidgetsLoading } from "./widget-init";
 
 export class ZoneFlameGraph extends Widget {
-    public constructor(canvas: HTMLCanvasElement) {
-        super(canvas);
+    public constructor(canvas: HTMLDivElement) {
+        super(canvas, true);
     }
 
     protected renderInternal(context: CanvasRenderingContext2D, w: number, h: number) {
@@ -48,5 +49,33 @@ export class ZoneFlameGraph extends Widget {
                 }
             }
         }
+    }
+
+    protected onMouseWheel(x: number, y: number, dy: number) {
+        //TODO: Relative to x pos
+        let amnt: number;
+
+        if(dy < 0) {
+            amnt = 1.1;
+        } else {
+            amnt = 0.9;
+        }
+
+        const dp = DataProvider.getInstance();
+        const tr = dp.getTimeRange();
+        const dt = (tr.max - tr.min) * 0.5 * amnt;
+        const middle = (tr.min + tr.max) * 0.5;
+
+        let start = middle - dt;
+        let end = middle + dt;
+
+        if(start < 0.0) {
+            //TODO: ALSO CLAMP END!!!
+            end -= start;
+            start = 0.0;
+        }
+        
+        //setWidgetsLoading(true); TODO: Only show loading after a certain time
+        dp.setTimeRange(start, end);
     }
 }

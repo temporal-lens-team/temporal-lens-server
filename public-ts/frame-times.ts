@@ -8,7 +8,7 @@ export class FrameTimeGraph extends Widget {
     private drag1: number = 0.0;
     private drag2: number = 0.0;
 
-    public constructor(canvas: HTMLCanvasElement) {
+    public constructor(canvas: HTMLDivElement) {
         super(canvas);
     }
 

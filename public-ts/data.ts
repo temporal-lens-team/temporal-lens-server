@@ -226,4 +226,17 @@ export class DataProvider {
     public getZoneData(): ZoneInfo[] {
         return this.zoneData;
     }
+
+    public scrollTo(t: number) {
+        const dt = this.timeRange.max - this.timeRange.min;
+        this.setTimeRange(t, t + dt);
+    }
+
+    public setTimeRange(min: number, max: number) {
+        this.timeRange.min = min;
+        this.timeRange.max = max;
+
+        this.fetchZoneData(min, max);
+        this.fetchFrameTimes((min + max) * 0.5, 60);
+    }
 }

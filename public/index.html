@@ -4,6 +4,11 @@
 	<meta charset="UTF-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
 	<style type="text/css">
+		@keyframes pulsating-text {
+			0%   { color: #929292; }
+			100% { color: #ffffff; }
+		}
+
 		body {
 			margin: 0;
 			padding: 0;
@@ -17,6 +22,43 @@
 		.widget {
 			margin: 0;
 			padding: 0;
+			position: relative;
+		}
+
+		.widget > canvas {
+			margin: 0;
+			padding: 0;
+			width: 100%;
+			height: 100%;
+		}
+
+		.widget > div {
+			margin: 0;
+			padding: 0;
+			display: none;
+			position: absolute;
+			top: 0;
+			right: 0;
+			bottom: 0;
+			left: 0;
+			z-index: 100;
+			text-align: center;
+			font-size: 24pt;
+			font-weight: bolder;
+			color: white;
+			animation: pulsating-text 0.5s ease infinite alternate;
+		}
+
+		.widget > div > span {
+			margin: auto;
+		}
+
+		.widget.loading > canvas {
+			filter: opacity(0.2);
+		}
+
+		.widget.loading > div {
+			display: flex;
 		}
 
 		#frame-times {
@@ -33,6 +75,7 @@
 		#zone-graph {
 			width: 100%;
 			height: 500px;
+			margin: 5px 0;
 		}
 
 		#header {
@@ -151,9 +194,9 @@
 			<span class="time" id="end-time">00:00:00.000</span>
 		</div>
 	</div>
-	<canvas id="frame-times" class="widget" data-class="FrameTimeGraph"></canvas>
-	<canvas id="frame-delimiters" class="widget" data-class="FrameDelimiterGraph"></canvas>
-	<canvas id="zone-graph" class="widget" data-class="ZoneFlameGraph"></canvas>
+	<div id="frame-times" class="widget" data-class="FrameTimeGraph"></div>
+	<div id="frame-delimiters" class="widget" data-class="FrameDelimiterGraph"></div>
+	<div id="zone-graph" class="widget" data-class="ZoneFlameGraph"></div>
     <script data-main="js/main" src="require.min.js"></script>
 </body>
 </html>

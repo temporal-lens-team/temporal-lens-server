@@ -13,7 +13,7 @@ let aElement: HTMLAnchorElement | undefined = undefined;
 
 export function absoluteURL(url: string): string {
     if(aElement === undefined) {
-        aElement = document.createElement("A") as HTMLAnchorElement;
+        aElement = document.createElement("a");
     }
 
     aElement.href = url;

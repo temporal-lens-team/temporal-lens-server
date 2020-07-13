@@ -2,7 +2,7 @@ import { Widget } from "./widget";
 import { DataProvider } from "./data";
 
 export class FrameDelimiterGraph extends Widget {
-    public constructor(canvas: HTMLCanvasElement) {
+    public constructor(canvas: HTMLDivElement) {
         super(canvas);
     }
 
