@@ -313,4 +313,13 @@ export class DataProvider {
         
         this.onTimeRangeChanged.invoke();
     }
+
+    public setTimeRangeNoUpdate(min: number, max: number) {
+        this.timeRange.min = min;
+        this.timeRange.max = max;
+
+        this.onTimeRangeChanged.invoke();
+        this.onFrameDataChanged.invoke();
+        this.onZoneDataChanged.invoke();
+    }
 }

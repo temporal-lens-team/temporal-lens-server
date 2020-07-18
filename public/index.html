@@ -126,6 +126,19 @@
 
 		#scrollbar button:hover {
 			background-color: #363b47;
+			border: none;
+		}
+
+		#scrollbar button:active {
+			border: none;
+		}
+
+		#scrollbar button:focus {
+			border: none;
+		}
+
+		#scrollbar button:visited {
+			border: none;
 		}
 
 		#scrollbar button:active svg {
@@ -180,6 +193,25 @@
 			text-align: right;
 			margin: 5px;
 		}
+
+		.hand-cursor {
+			cursor: grabbing;
+		}
+
+		#tooltip {
+			position: absolute;
+			left: 100px;
+			top: 100px;
+			z-index: 1000;
+			border: 1px solid #181a1f;
+			background-color: #21252b;
+			padding: 5px;
+			font-size: 11pt;
+		}
+
+		#tooltip:not(.visible) {
+			display: none;
+		}
 	</style>
 </head>
 <body>
@@ -199,6 +231,11 @@
 	<div id="frame-times" class="widget" data-class="FrameTimeGraph"></div>
 	<div id="frame-delimiters" class="widget" data-class="FrameDelimiterGraph"></div>
 	<div id="zone-graph" class="widget" data-class="ZoneFlameGraph"></div>
+
+	<div id="tooltip">
+		Hello there!
+	</div>
+
     <script data-main="js/main" src="require.min.js"></script>
 </body>
 </html>

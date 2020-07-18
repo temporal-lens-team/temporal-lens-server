@@ -10,6 +10,7 @@ export function request(url: string, method: string = "GET"): Promise<string> {
 }
 
 let aElement: HTMLAnchorElement | undefined = undefined;
+let divElement: HTMLDivElement | undefined = undefined;
 
 export function absoluteURL(url: string): string {
     if(aElement === undefined) {
@@ -18,6 +19,15 @@ export function absoluteURL(url: string): string {
 
     aElement.href = url;
     return aElement.href;
+}
+
+export function escapeHTML(text: string): string {
+    if(divElement === undefined) {
+        divElement = document.createElement("div");
+    }
+
+    divElement.innerText = text;
+    return divElement.innerHTML;
 }
 
 export class SimpleEvent {

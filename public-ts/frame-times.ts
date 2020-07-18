@@ -1,5 +1,7 @@
 import { Widget } from "./widget";
 import { DataProvider } from "./data";
+import { TooltipManager, TooltipRect } from "./tooltip-manager";
+import { escapeHTML } from "./common";
 
 export class FrameTimeGraph extends Widget {
     private viewStart: number | undefined = undefined;
@@ -8,6 +10,7 @@ export class FrameTimeGraph extends Widget {
     private drag1: number = 0.0;
     private drag2: number = 0.0;
     private prevFrameNumber: number | undefined = undefined;
+    private lastMax: number = 1.0;
 
     public constructor(canvas: HTMLDivElement) {
         super(canvas);
@@ -15,6 +18,8 @@ export class FrameTimeGraph extends Widget {
         const dp = DataProvider.getInstance();
         dp.onTimeRangeChanged.register(() => this.onTimeRangeChanged());
         dp.onFrameDataChanged.register(() => this.onFrameDataAcquired());
+
+        this.alwaysHandleMouseMove = true;
     }
 
     private onTimeRangeChanged() {
@@ -60,7 +65,7 @@ export class FrameTimeGraph extends Widget {
         context.strokeStyle = "none";
         context.fillStyle = "#0080ff";
 
-        let max = 0.0;
+        this.lastMax = 0.0;
         let x = spacing;
 
         for(let i = 0; i < numBars; i++) {
@@ -70,8 +75,8 @@ export class FrameTimeGraph extends Widget {
             }
 
             const val = frameInfo.end - frameInfo.start;
-            if(val > max) {
-                max = val;
+            if(val > this.lastMax) {
+                this.lastMax = val;
             }
         }
 
@@ -82,7 +87,7 @@ export class FrameTimeGraph extends Widget {
             }
 
             const val = frameInfo.end - frameInfo.start;
-            const barH = val * h / max;
+            const barH = val * h / this.lastMax;
 
             context.fillRect(x, h - barH, width, barH);
             x += width + spacing;
@@ -153,6 +158,29 @@ export class FrameTimeGraph extends Widget {
             }
 
             this.render();
+        } else {
+            const fd = DataProvider.getInstance().getFrameData();
+            const fid = Math.floor(this.pos2frame(x));
+            const frame = fd[fid];
+            
+            if(frame === undefined) {
+                return;
+            }
+
+            const numBars = 60;
+            const width = Math.min(10.0, this.canvas.width / numBars);
+            const spacing = (this.canvas.width - numBars * width) / (numBars + 1);
+
+            const fx = spacing + fid * (spacing + width);
+            const fh = (frame.end - frame.start) / this.lastMax * this.canvas.clientHeight;
+            const fy = this.canvas.clientHeight - fh;
+
+            if(x >= fx && x <= fx + width && y >= fy && y <= fy + fh) {
+                TooltipManager.getInstance().displayTooltip(new TooltipRect(this.canvas, fx, fy, width, fh), () => `
+                    <strong>${escapeHTML("Frame #" + frame.number)}</strong><br/>
+                    <strong>Duration: </strong>${frame.duration}
+                `);
+            }
         }
     }
 }

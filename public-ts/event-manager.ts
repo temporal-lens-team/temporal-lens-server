@@ -1,6 +1,9 @@
+import { TooltipManager } from "./tooltip-manager";
+
 export abstract class EventHandler {
     private eventElement: HTMLElement;
     protected handleMouseWheel: boolean = false;
+    protected alwaysHandleMouseMove: boolean = false;
     private mouseInside: boolean = false;
 
     protected constructor(eventElement: HTMLElement) {
@@ -20,6 +23,10 @@ export abstract class EventHandler {
 
     public handlesMouseWheel(): boolean {
         return this.handleMouseWheel;
+    }
+
+    public shouldAlwaysHandleMouseMove(): boolean {
+        return this.alwaysHandleMouseMove;
     }
 
     public isMouseInside(): boolean {
@@ -95,7 +102,10 @@ export function initEventManager() {
     };
 
     document.onmousemove = (ev) => {
+        const ttm = TooltipManager.getInstance();
+
         currentEvent = ev;
+        ttm.beginMove(ev.clientX, ev.clientY);
 
         if(mmHandler !== undefined) {
             const r = mmHandler.getEventElement().getBoundingClientRect();
@@ -112,8 +122,13 @@ export function initEventManager() {
             if(h.isMouseInside() !== inside) {
                 h.setMouseInside(inside);
             }
+
+            if(inside && h.shouldAlwaysHandleMouseMove() && h !== mmHandler) {
+                h.onMouseMove(x, y);
+            }
         }
 
+        ttm.endMove();
         currentEvent = undefined;
     };
 
