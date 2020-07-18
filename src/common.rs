@@ -40,3 +40,9 @@ impl LiteZoneData {
         }
     }
 }
+
+impl shmem::ShouldStopQuery for LiteZoneData {
+    fn should_stop_query(&self, t: f64, query_max: f64) -> bool {
+        self.depth == 0 && t - (self.duration as f64) * 1e-9 > query_max
+    }
+}

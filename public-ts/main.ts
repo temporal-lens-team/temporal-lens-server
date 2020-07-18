@@ -1,21 +1,14 @@
 import { loadDocumentWidgets, getWidgetById, setWidgetsLoading } from "./widget-init";
 import { loadDocumentSVGs } from "./svg-manager";
-import { request } from "./common";
 import { DataProvider } from "./data";
 
 loadDocumentWidgets();
 loadDocumentSVGs();
 
-const scrollbar = document.getElementById("caret-wrapper");
+const scrollbar      = document.getElementById("caret-wrapper");
 const scrollbarCaret = document.getElementById("scrollbar-caret");
-const currentTime = document.getElementById("current-time");
-const endTime = document.getElementById("end-time");
-
-type ZonesEndResult = {
-    status: string,
-    end: number,
-    error: string
-};
+const currentTime    = document.getElementById("current-time");
+const endTime        = document.getElementById("end-time");
 
 function prefixZeroes(x: number): string {
     if(x < 10) {
@@ -38,40 +31,6 @@ function formatTime(t: number): string {
     return prefixZeroes(hours) + ":" + prefixZeroes(totalMinutes - hours * 60) + ":" + secondsStr;
 }
 
-let scrollingOrigin: number | undefined = undefined;
-let scrollbarEnd: number = 0.0;
-
-async function updateScrollbar() {
-    let data: ZonesEndResult;
-
-    try {
-        data = JSON.parse(await request("/data/zones-end"));
-    } catch(err) {
-        console.error(err);
-        return;
-    }
-
-    if(data.status !== "ok") {
-        console.error(data.error);
-        return;
-    }
-
-    if(scrollingOrigin === undefined) {
-        const tr = DataProvider.getInstance().getTimeRange();
-        const w = Math.min((tr.max - tr.min) / data.end, 1.0) * scrollbar.clientWidth;
-        scrollbarCaret.style.width = "" + w + "px";
-        
-        const x = tr.min / data.end * (scrollbar.clientWidth - scrollbarCaret.clientWidth);
-        scrollbarCaret.style.left = "" + x + "px";
-
-        scrollbarEnd = data.end;
-    }
-
-    endTime.innerText = formatTime(data.end);
-}
-
-setInterval(updateScrollbar, 250);
-
 function clearLoadingAndRender(wid: string) {
     const w = getWidgetById(wid);
     
@@ -79,9 +38,36 @@ function clearLoadingAndRender(wid: string) {
     w.render();
 }
 
-DataProvider.getInstance().onZoneDataChanged.register(() => clearLoadingAndRender("zone-graph"));
+let scrollingOrigin: number | undefined = undefined;
+let scrollbarEnd: number = 0.0;
+const dp = DataProvider.getInstance();
 
-DataProvider.getInstance().onFrameDataChanged.register(() => {
+function updateScrollbarCaret() {
+    if(scrollingOrigin === undefined) {
+        const dataEnd = dp.getDataEnd();
+        const tr = dp.getTimeRange();
+        
+        //Update width
+        const w = Math.min((tr.max - tr.min) / dataEnd, 1.0) * scrollbar.clientWidth;
+        scrollbarCaret.style.width = w.toString() + "px";
+        
+        //Update position
+        const x = tr.min / dataEnd * (scrollbar.clientWidth - scrollbarCaret.clientWidth);
+        scrollbarCaret.style.left = x.toString() + "px";
+
+        //Update time labels
+        currentTime.innerText = formatTime(tr.min);
+        endTime.innerText = formatTime(tr.max);
+
+        //Keep time for scroll operations
+        scrollbarEnd = dataEnd;
+    }
+}
+
+dp.onEndChanged.register(updateScrollbarCaret);
+dp.onTimeRangeChanged.register(updateScrollbarCaret);
+dp.onZoneDataChanged.register(() => clearLoadingAndRender("zone-graph"));
+dp.onFrameDataChanged.register(() => {
     clearLoadingAndRender("frame-times");
     clearLoadingAndRender("frame-delimiters");
 });
@@ -103,6 +89,7 @@ scrollbarCaret.onmousemove = (ev) => {
     if(scrollingOrigin !== undefined) {
         let x = scrollingOrigin + ev.clientX;
         const xMax = scrollbar.clientWidth - scrollbarCaret.clientWidth;
+        const dt = dp.getTimeRange().max - dp.getTimeRange().min;
 
         if(x < 0) {
             x = 0;
@@ -110,22 +97,25 @@ scrollbarCaret.onmousemove = (ev) => {
             x = xMax;
         }
 
+        const startTime = x / xMax * scrollbarEnd;
+
         scrollbarCaret.style.left = x.toString() + "px";
-        currentTime.innerText = formatTime(x / xMax * scrollbarEnd);
+        currentTime.innerText = formatTime(startTime);
+        endTime.innerText = formatTime(startTime + dt);
     }
 };
 
 scrollbarCaret.onmouseup = (ev) => {
     if(ev.button === 0 && scrollingOrigin !== undefined)  {
         scrollingOrigin = undefined;
-        DataProvider.getInstance().scrollTo(scrollbarCaret.offsetLeft / (scrollbar.clientWidth - scrollbarCaret.clientWidth) * scrollbarEnd);
+        dp.scrollTo(scrollbarCaret.offsetLeft / (scrollbar.clientWidth - scrollbarCaret.clientWidth) * scrollbarEnd);
     }
 };
 
 scrollbarCaret.onmouseleave = () => {
     if(scrollingOrigin !== undefined)  {
         scrollingOrigin = undefined;
-        DataProvider.getInstance().scrollTo(scrollbarCaret.offsetLeft / (scrollbar.clientWidth - scrollbarCaret.clientWidth) * scrollbarEnd);
+        dp.scrollTo(scrollbarCaret.offsetLeft / (scrollbar.clientWidth - scrollbarCaret.clientWidth) * scrollbarEnd);
     }
 };
 

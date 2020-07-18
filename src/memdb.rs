@@ -1,3 +1,5 @@
+use temporal_lens::shmem::ShouldStopQuery;
+
 use std::time::Instant;
 use std::sync::{RwLock, Arc, Mutex, RwLockReadGuard};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -229,7 +231,7 @@ impl<T: Serialize + DeserializeOwned> MemDB<T> {
     }
 }
 
-impl<T: Serialize + DeserializeOwned> Accessor<T> {
+impl<T: Serialize + DeserializeOwned + ShouldStopQuery> Accessor<T> {
     fn prepare_query(&self, min: f64, max: Option<f64>, lookup_list: &mut Vec<usize>) -> (f64, f64, RwLockReadGuard<Shared<T>>) {
         //Load all unloaded chunks that are potentially needed
         let shared = self.contents.shared.read().unwrap();
@@ -505,7 +507,7 @@ impl<T: Serialize + DeserializeOwned> Accessor<T> {
                 } else {
                     for j in start..data.len() {
                         let entry = &data[j];
-                        if entry.time > max {
+                        if entry.data.should_stop_query(entry.time, max) {
                             return;
                         }
 
@@ -526,7 +528,7 @@ impl<T: Serialize + DeserializeOwned> Accessor<T> {
 
             for i in start..chunk.len() {
                 let entry = &chunk[i];
-                if entry.time > max {
+                if entry.data.should_stop_query(entry.time, max) {
                     break;
                 }
 
@@ -562,37 +564,4 @@ impl<T> Clone for Accessor<T> {
 pub unsafe fn init()
 {
     START_INSTANT.write(Instant::now());
-}
-
-#[test]
-fn binary_search_test() {
-    use rand::Rng;
-    let mut array = [TimeData { time: 0.0, data: () }; 32];
-    let mut rng = rand::thread_rng();
-
-    for _ in 0..10000 {
-        let mut prev = 0.0;
-
-        for i in 0..array.len() {
-            let val = prev + rng.gen::<f64>();
-            array[i].time = val;
-            prev = val;
-        }
-
-        let min = array[0].time + f64::EPSILON;
-        let max = prev;
-
-        for j in 0..1000 {
-            let query = match j {
-                0   => min,
-                999 => array.last().unwrap().time,
-                _   => rng.gen_range(min, max)
-            };
-
-            assert!(query > array[0].time); //Can't be too sure
-
-            let result = Accessor::binary_search(&array, query);
-            assert!(array[result].time >= query && array[result - 1].time < query);
-        }
-    }
 }

@@ -13,7 +13,7 @@ export class FrameDelimiterGraph extends Widget {
         context.textBaseline = "middle";
 
         const dataProvider = DataProvider.getInstance();
-        const data = dataProvider.getFrameData();
+        const data = dataProvider.getDetailedFrameData();
         const lineY = Math.round((h - 1.0) * 0.5);
 
         for(const entry of data) {

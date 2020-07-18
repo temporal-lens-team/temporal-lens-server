@@ -17,6 +17,12 @@ type JSONZoneInfo = {
     thread  : number
 };
 
+type JSONZoneEnd = {
+    status: string,
+    end: number,
+    error: string
+};
+
 export class FrameInfo {
     public number: number;
     public start: number;
@@ -90,14 +96,20 @@ export class DataProvider {
     private timeRange: TimeRange = { min: 0.0, max: 0.25 + 3.0 / 60.0 };
     private strings: Map<number, string> = new Map();
     private threadNames: Map<number, string> = new Map();
+    private dataEnd: number = 0.0;
 
     private frameData: FrameInfo[] = [];
+    private detailedFrameData: FrameInfo[] = [];
+    private useDetailedFrameData: boolean = false;
     private zoneData: ZoneInfo[] = []; //TODO: One per thread
 
     public onFrameDataChanged: SimpleEvent = new SimpleEvent();
     public onZoneDataChanged: SimpleEvent = new SimpleEvent();
+    public onEndChanged: SimpleEvent = new SimpleEvent();
+    public onTimeRangeChanged: SimpleEvent = new SimpleEvent();
 
     private constructor() {
+        setInterval(() => this.fetchEnd(), 250);
         setTimeout(() => this.awaitInitialZoneData(), 50);
         setTimeout(() => this.awaitInitialFrameTimes(), 100);
     }
@@ -114,8 +126,16 @@ export class DataProvider {
         return this.frameData;
     }
 
+    public getDetailedFrameData(): FrameInfo[] {
+        return this.useDetailedFrameData ? this.detailedFrameData : this.frameData;
+    }
+
     public getTimeRange(): TimeRange {
         return this.timeRange;
+    }
+
+    public getDataEnd(): number {
+        return this.dataEnd;
     }
 
     public remapTime(t: number): number {
@@ -201,6 +221,37 @@ export class DataProvider {
             this.frameData.push(new FrameInfo(fd));
         }
 
+        if(this.frameData.length > 0 && this.frameData[0].start <= this.timeRange.min && this.frameData[this.frameData.length - 1].end >= this.timeRange.max) {
+            this.useDetailedFrameData = false;
+        } else {
+            try {
+                data = JSON.parse(await request("/data/frame-times/query-range?start=" + this.timeRange.min + "&end=" + this.timeRange.max));
+            } catch(err) {
+                console.error(err);
+                this.useDetailedFrameData = false;
+                this.onFrameDataChanged.invoke();
+
+                return true;
+            }
+    
+            if(data.status !== "ok") {
+                console.error(data.error);
+                this.useDetailedFrameData = false;
+                this.onFrameDataChanged.invoke();
+
+                return true;
+            }
+    
+            safeData = data as FrameDataQueryResult;
+            this.detailedFrameData.length = 0;
+    
+            for(const fd of safeData.results) {
+                this.detailedFrameData.push(new FrameInfo(fd));
+            }
+
+            this.useDetailedFrameData = true;
+        }
+
         this.onFrameDataChanged.invoke();
         return true;
     }
@@ -213,6 +264,27 @@ export class DataProvider {
         }
 
         setTimeout(() => this.awaitInitialFrameTimes(), 250);
+    }
+
+    private async fetchEnd() {
+        let data: JSONZoneEnd;
+    
+        try {
+            data = JSON.parse(await request("/data/zones-end"));
+        } catch(err) {
+            console.error(err);
+            return;
+        }
+    
+        if(data.status !== "ok") {
+            console.error(data.error);
+            return;
+        }
+    
+        if(this.dataEnd !== data.end) {
+            this.dataEnd = data.end;
+            this.onEndChanged.invoke();
+        }
     }
 
     public getString(id: number): string | undefined {
@@ -238,5 +310,7 @@ export class DataProvider {
 
         this.fetchZoneData(min, max);
         this.fetchFrameTimes((min + max) * 0.5, 60);
+        
+        this.onTimeRangeChanged.invoke();
     }
 }

@@ -52,7 +52,6 @@ export class ZoneFlameGraph extends Widget {
     }
 
     protected onMouseWheel(x: number, y: number, dy: number) {
-        //TODO: Relative to x pos
         let amnt: number;
 
         if(dy < 0) {
@@ -63,11 +62,10 @@ export class ZoneFlameGraph extends Widget {
 
         const dp = DataProvider.getInstance();
         const tr = dp.getTimeRange();
-        const dt = (tr.max - tr.min) * 0.5 * amnt;
-        const middle = (tr.min + tr.max) * 0.5;
+        const t = x / this.canvas.clientWidth * (tr.max - tr.min) + tr.min;
 
-        let start = middle - dt;
-        let end = middle + dt;
+        let start = (1.0 - amnt) * t + amnt * tr.min;
+        let end = (1.0 - amnt) * t + amnt * tr.max;
 
         if(start < 0.0) {
             //TODO: ALSO CLAMP END!!!
