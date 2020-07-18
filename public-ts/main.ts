@@ -1,9 +1,11 @@
 import { loadDocumentWidgets, getWidgetById, setWidgetsLoading } from "./widget-init";
 import { loadDocumentSVGs } from "./svg-manager";
 import { DataProvider } from "./data";
+import { EventHandler, initEventManager, registerEventHandler, getCurrentMouseEvent } from "./event-manager";
 
 loadDocumentWidgets();
 loadDocumentSVGs();
+initEventManager();
 
 const scrollbar      = document.getElementById("caret-wrapper");
 const scrollbarCaret = document.getElementById("scrollbar-caret");
@@ -72,51 +74,67 @@ dp.onFrameDataChanged.register(() => {
     clearLoadingAndRender("frame-delimiters");
 });
 
-scrollbarCaret.onmousedown = (ev) => {
-    if(ev.button === 0 && scrollingOrigin === undefined && scrollbarEnd > 0.0) {
-        const x = ev.clientX;
-        const caretX = scrollbarCaret.offsetLeft;
-        const caretW = scrollbarCaret.clientWidth;
+class ScrollbarCaret extends EventHandler {
+    public constructor() {
+        super(scrollbarCaret);
+    }
 
-        //if(x >= caretX && x <= caretX + caretW) {
-            scrollingOrigin = caretX - x;
+    public onMouseDown(button: number, _x: number, _y: number) {
+        if(button === 0 && scrollingOrigin === undefined && scrollbarEnd > 0.0) {
+            const caretX = scrollbarCaret.offsetLeft;
+
+            scrollingOrigin = caretX - getCurrentMouseEvent().clientX;
             setWidgetsLoading(true);
-        //}
-    }
-};
-
-scrollbarCaret.onmousemove = (ev) => {
-    if(scrollingOrigin !== undefined) {
-        let x = scrollingOrigin + ev.clientX;
-        const xMax = scrollbar.clientWidth - scrollbarCaret.clientWidth;
-        const dt = dp.getTimeRange().max - dp.getTimeRange().min;
-
-        if(x < 0) {
-            x = 0;
-        } else if(x > xMax) {
-            x = xMax;
         }
-
-        const startTime = x / xMax * scrollbarEnd;
-
-        scrollbarCaret.style.left = x.toString() + "px";
-        currentTime.innerText = formatTime(startTime);
-        endTime.innerText = formatTime(startTime + dt);
     }
+
+    public onMouseMove(_x: number, _y: number) {
+        if(scrollingOrigin !== undefined) {
+            let x = scrollingOrigin + getCurrentMouseEvent().clientX;
+            const xMax = scrollbar.clientWidth - scrollbarCaret.clientWidth;
+            const dt = dp.getTimeRange().max - dp.getTimeRange().min;
+    
+            if(x < 0) {
+                x = 0;
+            } else if(x > xMax) {
+                x = xMax;
+            }
+    
+            const startTime = x / xMax * scrollbarEnd;
+    
+            scrollbarCaret.style.left = x.toString() + "px";
+            currentTime.innerText = formatTime(startTime);
+            endTime.innerText = formatTime(startTime + dt);
+        }
+    }
+    
+    public onMouseUp(button: number, _x: number, _y: number) {
+        if(button === 0 && scrollingOrigin !== undefined)  {
+            scrollingOrigin = undefined;
+            dp.scrollTo(scrollbarCaret.offsetLeft / (scrollbar.clientWidth - scrollbarCaret.clientWidth) * scrollbarEnd);
+        }
+    }
+}
+
+document.getElementById("scrollbar-left").onclick = () => {
+    const tr = dp.getTimeRange();
+    const dt = tr.max - tr.min;
+
+    const min = Math.max(tr.min - dt * 0.25, 0.0);
+    const max = min + dt;
+
+    dp.setTimeRange(min, max);
 };
 
-scrollbarCaret.onmouseup = (ev) => {
-    if(ev.button === 0 && scrollingOrigin !== undefined)  {
-        scrollingOrigin = undefined;
-        dp.scrollTo(scrollbarCaret.offsetLeft / (scrollbar.clientWidth - scrollbarCaret.clientWidth) * scrollbarEnd);
-    }
+document.getElementById("scrollbar-right").onclick = () => {
+    const tr = dp.getTimeRange();
+    const dt = tr.max - tr.min;
+
+    const max = Math.min(tr.max + dt * 0.25, dp.getDataEnd());
+    const min = max - dt;
+
+    dp.setTimeRange(min, max);
 };
 
-scrollbarCaret.onmouseleave = () => {
-    if(scrollingOrigin !== undefined)  {
-        scrollingOrigin = undefined;
-        dp.scrollTo(scrollbarCaret.offsetLeft / (scrollbar.clientWidth - scrollbarCaret.clientWidth) * scrollbarEnd);
-    }
-};
-
+registerEventHandler(new ScrollbarCaret());
 setWidgetsLoading(true);

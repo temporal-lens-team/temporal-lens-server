@@ -1,8 +1,10 @@
-export abstract class Widget {
+import { EventHandler, registerEventHandler } from "./event-manager";
+
+export abstract class Widget extends EventHandler {
     protected element: HTMLDivElement;
     protected canvas: HTMLCanvasElement;
 
-    protected constructor(div: HTMLDivElement, captureWheel: boolean = false) {
+    protected constructor(div: HTMLDivElement) {
         const canvas = document.createElement("canvas");
         const loadingDiv = document.createElement("div");
         const loadingSpan = document.createElement("span");
@@ -11,25 +13,14 @@ export abstract class Widget {
         loadingDiv.append(loadingSpan);
         
         div.appendChild(canvas);
-        div.append(loadingDiv);
+        div.appendChild(loadingDiv);
 
+        super(canvas);
         this.element = div;
         this.canvas = canvas;
         this.updateSize();
 
-        canvas.onmousedown  = (ev) => this.onMouseDown(ev.button, ev.offsetX, ev.offsetY);
-        canvas.onmousemove  = (ev) => this.onMouseMove(ev.offsetX, ev.offsetY);
-        canvas.onmouseup    = (ev) => this.onMouseUp(ev.button, ev.offsetX, ev.offsetY);
-        canvas.onmouseleave = (ev) => this.onMouseLeave();
-
-        if(captureWheel) {
-            canvas.onwheel = (ev) => {
-                if(ev.deltaY != 0.0) {
-                    this.onMouseWheel(ev.offsetX, ev.offsetY, ev.deltaY);
-                    ev.preventDefault();
-                }
-            };
-        }
+        registerEventHandler(this);
     }
 
     public updateSize() {
@@ -42,11 +33,6 @@ export abstract class Widget {
         this.renderInternal(context, this.canvas.width, this.canvas.height);
     }
 
-    protected onMouseDown(button: number, x: number, y: number) {}
-    protected onMouseMove(x: number, y: number) {}
-    protected onMouseUp(button: number, x: number, y: number) {}
-    protected onMouseWheel(x: number, y: number, dy: number) {}
-    protected onMouseLeave() {}
     protected abstract renderInternal(context: CanvasRenderingContext2D, w: number, h: number);
 
     public setLoading(loading: boolean) {

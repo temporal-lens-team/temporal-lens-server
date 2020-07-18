@@ -1,10 +1,11 @@
 import { Widget } from "./widget";
 import { DataProvider } from "./data";
-//import { setWidgetsLoading } from "./widget-init";
+import { rgbToHsl } from "./color-conversion-algorithms";
 
 export class ZoneFlameGraph extends Widget {
     public constructor(canvas: HTMLDivElement) {
-        super(canvas, true);
+        super(canvas);
+        this.handleMouseWheel = true;
     }
 
     protected renderInternal(context: CanvasRenderingContext2D, w: number, h: number) {
@@ -42,8 +43,16 @@ export class ZoneFlameGraph extends Widget {
                         const nameW = context.measureText(name).width;
 
                         if(nameW + 4 <= rw) {
-                            context.fillStyle = "#FFFFFF";
-                            context.fillText(name, x + Math.floor((rw - nameW) / 2), y + Math.floor(lineHeight / 2));
+                            let nameX = x + Math.floor((rw - nameW) / 2);
+                            if(nameX < 4) {
+                                nameX = Math.min(4, x + rw - nameW - 4);
+                            } else if(nameX + nameW > w - 4) {
+                                nameX = Math.max(w - nameW - 4, x + 4);
+                            }
+
+                            const hslColor = rgbToHsl(r, g, b);
+                            context.fillStyle = hslColor[2] < 0.5 ? "#FFFFFF" : "#000000";
+                            context.fillText(name, nameX, y + Math.floor(lineHeight / 2));
                         }
                     }
                 }
@@ -51,26 +60,32 @@ export class ZoneFlameGraph extends Widget {
         }
     }
 
-    protected onMouseWheel(x: number, y: number, dy: number) {
+    public onMouseWheel(x: number, y: number, dy: number) {
+        const dp = DataProvider.getInstance();
+        const tr = dp.getTimeRange();
         let amnt: number;
 
-        if(dy < 0) {
+        if(dy > 0) {
             amnt = 1.1;
         } else {
             amnt = 0.9;
         }
 
-        const dp = DataProvider.getInstance();
-        const tr = dp.getTimeRange();
         const t = x / this.canvas.clientWidth * (tr.max - tr.min) + tr.min;
 
         let start = (1.0 - amnt) * t + amnt * tr.min;
         let end = (1.0 - amnt) * t + amnt * tr.max;
 
         if(start < 0.0) {
-            //TODO: ALSO CLAMP END!!!
             end -= start;
             start = 0.0;
+        }
+
+        if(end > dp.getDataEnd()) {
+            const diff = end - dp.getDataEnd();
+
+            start = Math.max(start - diff, 0.0);
+            end = dp.getDataEnd();
         }
         
         //setWidgetsLoading(true); TODO: Only show loading after a certain time

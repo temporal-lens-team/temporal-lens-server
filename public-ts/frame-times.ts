@@ -7,12 +7,49 @@ export class FrameTimeGraph extends Widget {
     private dragingView: boolean = false;
     private drag1: number = 0.0;
     private drag2: number = 0.0;
+    private prevFrameNumber: number | undefined = undefined;
 
     public constructor(canvas: HTMLDivElement) {
         super(canvas);
+
+        const dp = DataProvider.getInstance();
+        dp.onTimeRangeChanged.register(() => this.onTimeRangeChanged());
+        dp.onFrameDataChanged.register(() => this.onFrameDataAcquired());
     }
 
-    public renderInternal(context: CanvasRenderingContext2D, w: number, h: number) {
+    private onTimeRangeChanged() {
+         if(this.prevFrameNumber === undefined && this.viewStart !== undefined) {
+            this.viewStart = undefined;
+            this.render();
+        }
+    }
+
+    private onFrameDataAcquired() {
+        if(this.prevFrameNumber === undefined) {
+            return;
+        }
+
+        if(this.viewStart !== undefined) {
+            //Duct tape hack!!! Fix it!!!
+            const fd = DataProvider.getInstance().getFrameData();
+
+            for(let i = 0; i < fd.length; i++) {
+                if(fd[i].number === this.prevFrameNumber) {
+                    const len = this.viewEnd - this.viewStart;
+
+                    this.viewStart = i;
+                    this.viewEnd = i + len;
+                    break;
+                }
+            }
+
+            this.render();
+        }
+
+        this.prevFrameNumber = undefined;
+    }
+
+    protected renderInternal(context: CanvasRenderingContext2D, w: number, h: number) {
         const dataProvider = DataProvider.getInstance();
 
         const numBars = 60;
@@ -79,7 +116,7 @@ export class FrameTimeGraph extends Widget {
         }
     }
 
-    protected onMouseDown(button: number, x: number, y: number) {
+    public onMouseDown(button: number, x: number, y: number) {
         if(button === 0 && !this.dragingView) {
             this.dragingView = true;
             this.drag1       = this.pos2frame(x);
@@ -91,13 +128,19 @@ export class FrameTimeGraph extends Widget {
         }
     }
 
-    protected onMouseUp(button: number, x: number, y: number) {
+    public onMouseUp(button: number, x: number, y: number) {
         if(button === 0 && this.dragingView) {
             this.dragingView = false;
+
+            const dp = DataProvider.getInstance();
+            const fd = dp.getFrameData();
+
+            this.prevFrameNumber = fd[this.viewStart].number;
+            dp.setTimeRange(fd[this.viewStart].start, fd[this.viewEnd].end);
         }
     }
 
-    protected onMouseMove(x: number, y: number) {
+    public onMouseMove(x: number, y: number) {
         if(this.viewStart !== undefined && this.dragingView) {
             this.drag2 = this.pos2frame(x);
 
@@ -111,9 +154,5 @@ export class FrameTimeGraph extends Widget {
 
             this.render();
         }
-    }
-
-    protected onMouseLeave() {
-        this.dragingView = false;
     }
 }
