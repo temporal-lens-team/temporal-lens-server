@@ -15,6 +15,7 @@ const WIDGET_CLASSES: WidgetRegistrar = {
 };
 
 const WIDGETS: Map<string, Widget> = new Map();
+const ZONE_GRAPHS: ZoneFlameGraph[] = [];
 
 export function loadDocumentWidgets() {
     for(const w of document.getElementsByClassName("widget")) {
@@ -32,7 +33,12 @@ export function loadDocumentWidgets() {
                 if(cls === undefined) {
                     console.error(`Widget ${div.id} has an invalid class name ${clsName}`);
                 } else {
-                    WIDGETS.set(div.id, new cls(div));
+                    const widget = new cls(div);
+                    WIDGETS.set(div.id, widget);
+
+                    if(clsName === "ZoneFlameGraph") {
+                        ZONE_GRAPHS.push(widget as ZoneFlameGraph);
+                    }
                 }
             }
         }
@@ -56,5 +62,36 @@ export function getWidgetById(wid: string): Widget {
 
 export function setWidgetsLoading(loading: boolean) {
     WIDGETS.get("frame-times").setLoading(loading);
-    WIDGETS.get("zone-graph").setLoading(loading);
+
+    for(const w of ZONE_GRAPHS) {
+        w.setLoading(loading);
+    }
+}
+
+export function createWidget(id: string, className: string, appendTo: HTMLElement): Widget | undefined {
+    const cls = WIDGET_CLASSES[className];
+    if(cls === undefined) {
+        console.error(`Cannot instantiate widget "${id}" of class "${className}": Not such widget class.`);
+        return undefined;
+    }
+
+    const div = document.createElement("div");
+    div.id = id;
+    div.classList.add("widget");
+    div.dataset["class"] = className;
+    appendTo.appendChild(div);
+
+    const ret = new cls(div);
+    WIDGETS.set(id, ret);
+
+    if(className === "ZoneFlameGraph") {
+        ZONE_GRAPHS.push(ret as ZoneFlameGraph);
+    }
+
+    return ret;
+}
+
+export function getZoneGraphs() {
+    //This is bad design. I know.
+    return ZONE_GRAPHS;
 }

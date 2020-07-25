@@ -1,7 +1,8 @@
-import { loadDocumentWidgets, getWidgetById, setWidgetsLoading } from "./widget-init";
+import { loadDocumentWidgets, getWidgetById, setWidgetsLoading, createWidget, getZoneGraphs } from "./widget-init";
 import { loadDocumentSVGs } from "./svg-manager";
 import { DataProvider } from "./data";
 import { EventHandler, initEventManager, registerEventHandler, getCurrentMouseEvent } from "./event-manager";
+import { ZoneFlameGraph } from "./zone-flame-graph";
 
 loadDocumentWidgets();
 loadDocumentSVGs();
@@ -34,10 +35,17 @@ function formatTime(t: number): string {
 }
 
 function clearLoadingAndRender(wid: string) {
-    const w = getWidgetById(wid);
-    
-    w.setLoading(false);
-    w.render();
+    if(wid === "zone-graphs") {
+        for(const w of getZoneGraphs()) {
+            w.setLoading(false);
+            w.render();
+        }
+    } else {
+        const w = getWidgetById(wid);
+        
+        w.setLoading(false);
+        w.render();
+    }
 }
 
 let scrollingOrigin: number | undefined = undefined;
@@ -68,10 +76,23 @@ function updateScrollbarCaret() {
 
 dp.onEndChanged.register(updateScrollbarCaret);
 dp.onTimeRangeChanged.register(updateScrollbarCaret);
-dp.onZoneDataChanged.register(() => clearLoadingAndRender("zone-graph"));
+dp.onZoneDataChanged.register(() => clearLoadingAndRender("zone-graphs"));
 dp.onFrameDataChanged.register(() => {
     clearLoadingAndRender("frame-times");
     clearLoadingAndRender("frame-delimiters");
+});
+
+dp.onNewThread.register((tid) => {
+    const div = document.createElement("div");
+    const h3 = document.createElement("h3");
+
+    div.classList.add("per-thread");
+    h3.innerText = `Thread "${dp.getThreadName(tid)}"`;
+    div.appendChild(h3);
+    document.getElementById("zone-graphs").appendChild(div);
+
+    const widget = createWidget("zones-graph-" + tid, "ZoneFlameGraph", div) as ZoneFlameGraph;
+    widget.setThreadID(tid);
 });
 
 class ScrollbarCaret extends EventHandler {

@@ -2,12 +2,13 @@ import { Widget } from "./widget";
 import { DataProvider } from "./data";
 import { rgbToHsl } from "./color-conversion-algorithms";
 import { TooltipManager, TooltipRect } from "./tooltip-manager";
-import { escapeHTML } from "./common";
+import { escapeHTML, formatNanoTime } from "./common";
 
 const lineHeight = 32;
 
 export class ZoneFlameGraph extends Widget {
     private grabOffset: number | undefined = undefined;
+    private threadId: number | undefined = undefined;
 
     public constructor(canvas: HTMLDivElement) {
         super(canvas);
@@ -17,8 +18,12 @@ export class ZoneFlameGraph extends Widget {
     }
 
     protected renderInternal(context: CanvasRenderingContext2D, w: number, h: number) {
+        if(this.threadId === undefined) {
+            return;
+        }
+
         const dp = DataProvider.getInstance();
-        const zd = dp.getZoneData();
+        const zd = dp.getZoneData(this.threadId);
 
         context.clearRect(0, 0, w, h);
         context.strokeStyle = "rgba(0, 0, 0, 0.5)";
@@ -78,9 +83,13 @@ export class ZoneFlameGraph extends Widget {
     }
 
     public onMouseMove(x: number, y: number) {
+        if(this.threadId === undefined) {
+            return;
+        }
+
         if(this.grabOffset === undefined) {
             const dp = DataProvider.getInstance();
-            const zd = dp.getZoneData();
+            const zd = dp.getZoneData(this.threadId);
             const w = this.canvas.clientWidth;
 
             for(const zone of zd) {
@@ -95,7 +104,7 @@ export class ZoneFlameGraph extends Widget {
                     if(zw >= 2 && x >= zx && x <= zx + zw && y >= zy && y <= zy + lineHeight) {
                         TooltipManager.getInstance().displayTooltip(new TooltipRect(this.canvas, zx, zy, zw, lineHeight), () => `
                             <strong>Zone name: </strong>${escapeHTML(zone.getZoneName())}<br/>
-                            <strong>Duration: </strong>${zone.duration} ns
+                            <strong>Duration: </strong>${formatNanoTime(zone.duration)}
                         `);
 
                         break;
@@ -171,5 +180,10 @@ export class ZoneFlameGraph extends Widget {
         
         //setWidgetsLoading(true); TODO: Only show loading after a certain time
         dp.setTimeRange(start, end);
+    }
+
+    public setThreadID(tid: number) {
+        this.threadId = tid;
+        this.render();
     }
 }

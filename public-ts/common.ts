@@ -43,3 +43,38 @@ export class SimpleEvent {
         }
     }
 }
+
+export interface EventHandler<T> {
+    (arg0: T);
+}
+
+export class Event<T> {
+    private callbacks: EventHandler<T>[] = [];
+
+    public register(f: EventHandler<T>) {
+        this.callbacks.push(f);
+    }
+
+    public invoke(arg0: T) {
+        for(const f of this.callbacks) {
+            f(arg0);
+        }
+    }
+}
+
+const TIME_UNITS: string[] = ["ns", "µs", "ms", "s"];
+
+export function formatNanoTime(t: number): string {
+    let unit = 0;
+
+    while(t >= 1000.0 && unit < TIME_UNITS.length - 1) {
+        t /= 1000.0;
+        unit++;
+    }
+
+    if(unit <= 0) {
+        return t.toString() + " " + TIME_UNITS[0];
+    } else {
+        return t.toFixed(3) + " " + TIME_UNITS[unit];
+    }
+}

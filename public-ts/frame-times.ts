@@ -1,7 +1,7 @@
 import { Widget } from "./widget";
 import { DataProvider } from "./data";
 import { TooltipManager, TooltipRect } from "./tooltip-manager";
-import { escapeHTML } from "./common";
+import { escapeHTML, formatNanoTime } from "./common";
 
 export class FrameTimeGraph extends Widget {
     private viewStart: number | undefined = undefined;
@@ -178,7 +178,7 @@ export class FrameTimeGraph extends Widget {
             if(x >= fx && x <= fx + width && y >= fy && y <= fy + fh) {
                 TooltipManager.getInstance().displayTooltip(new TooltipRect(this.canvas, fx, fy, width, fh), () => `
                     <strong>${escapeHTML("Frame #" + frame.number)}</strong><br/>
-                    <strong>Duration: </strong>${frame.duration}
+                    <strong>Duration: </strong>${formatNanoTime(frame.duration)}
                 `);
             }
         }

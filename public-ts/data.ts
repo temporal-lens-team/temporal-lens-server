@@ -1,4 +1,4 @@
-import { request, SimpleEvent } from "./common";
+import { request, Event, SimpleEvent } from "./common";
 
 type JSONFrameInfo = {
     number: number,
@@ -101,12 +101,13 @@ export class DataProvider {
     private frameData: FrameInfo[] = [];
     private detailedFrameData: FrameInfo[] = [];
     private useDetailedFrameData: boolean = false;
-    private zoneData: ZoneInfo[] = []; //TODO: One per thread
+    private readonly perThread: Map<number, ZoneInfo[]> = new Map();
 
-    public onFrameDataChanged: SimpleEvent = new SimpleEvent();
-    public onZoneDataChanged: SimpleEvent = new SimpleEvent();
-    public onEndChanged: SimpleEvent = new SimpleEvent();
-    public onTimeRangeChanged: SimpleEvent = new SimpleEvent();
+    public readonly onFrameDataChanged: SimpleEvent = new SimpleEvent();
+    public readonly onZoneDataChanged: SimpleEvent = new SimpleEvent();
+    public readonly onEndChanged: SimpleEvent = new SimpleEvent();
+    public readonly onTimeRangeChanged: SimpleEvent = new SimpleEvent();
+    public readonly onNewThread: Event<number> = new Event();
 
     private constructor() {
         setInterval(() => this.fetchEnd(), 250);
@@ -179,10 +180,21 @@ export class DataProvider {
             this.threadNames.set(parseInt(key), safeData.thread_names[key]);
         }
 
-        this.zoneData.length = 0;
+        for(const zi of this.perThread.values()) {
+            zi.length = 0;
+        }
 
         for(const zd of safeData.results) {
-            this.zoneData.push(new ZoneInfo(zd));
+            let dst = this.perThread.get(zd.thread);
+
+            if(dst === undefined) {
+                dst = [];
+
+                this.perThread.set(zd.thread, dst);
+                this.onNewThread.invoke(zd.thread);
+            }
+
+            dst.push(new ZoneInfo(zd));
         }
 
         this.onZoneDataChanged.invoke();
@@ -191,8 +203,10 @@ export class DataProvider {
 
     private async awaitInitialZoneData() {
         if(await this.fetchZoneData(this.timeRange.min, this.timeRange.max * 1.05)) {
-            if(this.zoneData.length > 0 && this.zoneData[this.zoneData.length - 1].end >= this.timeRange.max) {
-                return;
+            for(const zd of this.perThread.values()) {
+                if(zd.length > 0 && zd[zd.length - 1].end >= this.timeRange.max) {
+                    return;
+                }
             }
         }
 
@@ -295,8 +309,8 @@ export class DataProvider {
         return this.threadNames.get(id);
     }
 
-    public getZoneData(): ZoneInfo[] {
-        return this.zoneData;
+    public getZoneData(tid: number): ZoneInfo[] {
+        return this.perThread.get(tid);
     }
 
     public scrollTo(t: number) {
