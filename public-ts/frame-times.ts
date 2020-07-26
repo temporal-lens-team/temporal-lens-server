@@ -96,7 +96,7 @@ export class FrameTimeGraph extends Widget {
         if(this.viewStart !== undefined) {
             context.lineWidth = 1.0;
             context.strokeStyle = "#808080";
-            context.fillStyle = "rgba(128, 128, 128, 0.5)";
+            context.fillStyle = "rgba(128, 128, 128, 0.2)";
 
             const vs = this.viewStart * (width + spacing) + spacing;
             const vw = (this.viewEnd + 1) * (width + spacing) - vs;

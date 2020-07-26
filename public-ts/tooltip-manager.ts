@@ -28,6 +28,8 @@ export class TooltipManager {
     private visible: boolean = false;
     private lastMouseX: number = 0;
     private lastMouseY: number = 0;
+    private manual: boolean = false;
+    private wasManual: boolean = false;
 
     private constructor() {
         this.element = document.getElementById("tooltip") as HTMLDivElement;
@@ -42,6 +44,12 @@ export class TooltipManager {
     }
 
     public beginMove(x: number, y: number) {
+        if(this.manual) {
+            this.wasManual = true;
+            this.manual = false;
+            return;
+        }
+
         if(this.visible) {
             if(x < this.rect.x || x > this.rect.x + this.rect.w || y < this.rect.y || y > this.rect.y + this.rect.h) {
                 this.element.classList.remove("visible");
@@ -59,6 +67,15 @@ export class TooltipManager {
     }
 
     public endMove() {
+        if(this.manual) {
+            return;
+        }
+
+        if(this.wasManual) {
+            this.element.classList.remove("visible");
+            this.wasManual = false;
+        }
+
         if(!this.visible) {
             if(this.timeout !== undefined) {
                 clearTimeout(this.timeout);
@@ -87,5 +104,14 @@ export class TooltipManager {
     public displayTooltip(rect: TooltipRect, item: TooltipItem) {
         this.newRect = rect;
         this.newItem = item;
+    }
+
+    public displayManual(): HTMLDivElement {
+        if(!this.wasManual) {
+            this.element.classList.add("visible");
+        }
+
+        this.manual = true;
+        return this.element;
     }
 }

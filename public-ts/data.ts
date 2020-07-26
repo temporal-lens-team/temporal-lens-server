@@ -70,6 +70,16 @@ export class ZoneInfo {
     }
 }
 
+export class HeapInfo {
+    public t: number;
+    public used: number;
+
+    public constructor(t: number) {
+        this.t = t;
+        this.used = Math.random();
+    }
+}
+
 export type TimeRange = {
     min: number,
     max: number
@@ -98,10 +108,11 @@ export class DataProvider {
     private threadNames: Map<number, string> = new Map();
     private dataEnd: number = 0.0;
 
-    private frameData: FrameInfo[] = [];
-    private detailedFrameData: FrameInfo[] = [];
+    private readonly frameData: FrameInfo[] = [];
+    private readonly detailedFrameData: FrameInfo[] = [];
     private useDetailedFrameData: boolean = false;
     private readonly perThread: Map<number, ZoneInfo[]> = new Map();
+    private readonly heapData: HeapInfo[] = [];
 
     public readonly onFrameDataChanged: SimpleEvent = new SimpleEvent();
     public readonly onZoneDataChanged: SimpleEvent = new SimpleEvent();
@@ -110,6 +121,10 @@ export class DataProvider {
     public readonly onNewThread: Event<number> = new Event();
 
     private constructor() {
+        for(let i = 0; i <= 10; i++) {
+            this.heapData.push(new HeapInfo((i / 10.0 * 0.9 + 0.05) * (this.timeRange.max - this.timeRange.min) + this.timeRange.min));
+        }
+
         setInterval(() => this.fetchEnd(), 250);
         setTimeout(() => this.awaitInitialZoneData(), 50);
         setTimeout(() => this.awaitInitialFrameTimes(), 100);
@@ -145,6 +160,10 @@ export class DataProvider {
 
     public getFrameInfo(frame: number): FrameInfo | undefined {
         return this.frameData[frame];
+    }
+
+    public getHeapData(): HeapInfo[] {
+        return this.heapData;
     }
 
     public lastFrameNumber(): number {

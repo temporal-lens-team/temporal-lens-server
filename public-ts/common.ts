@@ -30,6 +30,27 @@ export function escapeHTML(text: string): string {
     return divElement.innerHTML;
 }
 
+function prefixZeroes(x: number): string {
+    if(x < 10) {
+        return "0" + x;
+    } else {
+        return x.toString();
+    }
+}
+
+export function formatTime(t: number): string {
+    const totalMinutes = Math.floor(t / 60);
+    const seconds = t - totalMinutes * 60;
+    const hours = Math.floor(totalMinutes / 60);
+
+    let secondsStr = seconds.toFixed(3);
+    if(seconds < 10) {
+        secondsStr = "0" + secondsStr;
+    }
+
+    return prefixZeroes(hours) + ":" + prefixZeroes(totalMinutes - hours * 60) + ":" + secondsStr;
+}
+
 export class SimpleEvent {
     private callbacks: VoidFunction[] = [];
 

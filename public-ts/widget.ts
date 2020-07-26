@@ -36,6 +36,10 @@ export abstract class Widget extends EventHandler {
     protected abstract renderInternal(context: CanvasRenderingContext2D, w: number, h: number);
 
     public setLoading(loading: boolean) {
+        if(this.element.classList.contains("no-loading")) {
+            return;
+        }
+
         if(loading) {
             this.element.classList.add("loading");
         } else {

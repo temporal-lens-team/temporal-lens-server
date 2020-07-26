@@ -2,6 +2,7 @@ import { Widget } from "./widget";
 import { FrameTimeGraph } from "./frame-times";
 import { FrameDelimiterGraph } from "./frame-delimiter";
 import { ZoneFlameGraph } from "./zone-flame-graph";
+import { Plot } from "./plot";
 
 type WidgetConstructor = new(canvas: HTMLDivElement) => Widget;
 type WidgetRegistrar = {
@@ -11,11 +12,11 @@ type WidgetRegistrar = {
 const WIDGET_CLASSES: WidgetRegistrar = {
     "FrameTimeGraph": FrameTimeGraph,
     "FrameDelimiterGraph": FrameDelimiterGraph,
-    "ZoneFlameGraph": ZoneFlameGraph
+    "ZoneFlameGraph": ZoneFlameGraph,
+    "Plot": Plot
 };
 
 const WIDGETS: Map<string, Widget> = new Map();
-const ZONE_GRAPHS: ZoneFlameGraph[] = [];
 
 export function loadDocumentWidgets() {
     for(const w of document.getElementsByClassName("widget")) {
@@ -33,12 +34,7 @@ export function loadDocumentWidgets() {
                 if(cls === undefined) {
                     console.error(`Widget ${div.id} has an invalid class name ${clsName}`);
                 } else {
-                    const widget = new cls(div);
-                    WIDGETS.set(div.id, widget);
-
-                    if(clsName === "ZoneFlameGraph") {
-                        ZONE_GRAPHS.push(widget as ZoneFlameGraph);
-                    }
+                    WIDGETS.set(div.id, new cls(div));
                 }
             }
         }
@@ -60,11 +56,13 @@ export function getWidgetById(wid: string): Widget {
     return WIDGETS.get(wid);
 }
 
-export function setWidgetsLoading(loading: boolean) {
-    WIDGETS.get("frame-times").setLoading(loading);
-
-    for(const w of ZONE_GRAPHS) {
+export function setWidgetsLoading(loading: boolean, reRender: boolean = false) {
+    for(const w of WIDGETS.values()) {
         w.setLoading(loading);
+
+        if(reRender) {
+            w.render();
+        }
     }
 }
 
@@ -84,14 +82,9 @@ export function createWidget(id: string, className: string, appendTo: HTMLElemen
     const ret = new cls(div);
     WIDGETS.set(id, ret);
 
-    if(className === "ZoneFlameGraph") {
-        ZONE_GRAPHS.push(ret as ZoneFlameGraph);
-    }
-
     return ret;
 }
 
-export function getZoneGraphs() {
-    //This is bad design. I know.
-    return ZONE_GRAPHS;
+export function getAllWidgets(): IterableIterator<Widget> {
+    return WIDGETS.values();
 }

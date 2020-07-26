@@ -1,8 +1,10 @@
-import { loadDocumentWidgets, getWidgetById, setWidgetsLoading, createWidget, getZoneGraphs } from "./widget-init";
+import { loadDocumentWidgets, getWidgetById, setWidgetsLoading, createWidget, getAllWidgets } from "./widget-init";
 import { loadDocumentSVGs } from "./svg-manager";
-import { DataProvider } from "./data";
+import { DataProvider, HeapInfo } from "./data";
 import { EventHandler, initEventManager, registerEventHandler, getCurrentMouseEvent } from "./event-manager";
 import { ZoneFlameGraph } from "./zone-flame-graph";
+import { Plot } from "./plot";
+import { formatTime } from "./common";
 
 loadDocumentWidgets();
 loadDocumentSVGs();
@@ -13,32 +15,13 @@ const scrollbarCaret = document.getElementById("scrollbar-caret");
 const currentTime    = document.getElementById("current-time");
 const endTime        = document.getElementById("end-time");
 
-function prefixZeroes(x: number): string {
-    if(x < 10) {
-        return "0" + x;
-    } else {
-        return x.toString();
-    }
-}
-
-function formatTime(t: number): string {
-    const totalMinutes = Math.floor(t / 60);
-    const seconds = t - totalMinutes * 60;
-    const hours = Math.floor(totalMinutes / 60);
-
-    let secondsStr = seconds.toFixed(3);
-    if(seconds < 10) {
-        secondsStr = "0" + secondsStr;
-    }
-
-    return prefixZeroes(hours) + ":" + prefixZeroes(totalMinutes - hours * 60) + ":" + secondsStr;
-}
-
 function clearLoadingAndRender(wid: string) {
     if(wid === "zone-graphs") {
-        for(const w of getZoneGraphs()) {
-            w.setLoading(false);
-            w.render();
+        for(const w of getAllWidgets()) {
+            if(w instanceof ZoneFlameGraph) {
+                w.setLoading(false);
+                w.render();
+            }
         }
     } else {
         const w = getWidgetById(wid);
@@ -76,7 +59,12 @@ function updateScrollbarCaret() {
 
 dp.onEndChanged.register(updateScrollbarCaret);
 dp.onTimeRangeChanged.register(updateScrollbarCaret);
-dp.onZoneDataChanged.register(() => clearLoadingAndRender("zone-graphs"));
+
+dp.onZoneDataChanged.register(() => {
+    clearLoadingAndRender("zone-graphs");
+    clearLoadingAndRender("heap-plot");
+});
+
 dp.onFrameDataChanged.register(() => {
     clearLoadingAndRender("frame-times");
     clearLoadingAndRender("frame-delimiters");
@@ -156,6 +144,9 @@ document.getElementById("scrollbar-right").onclick = () => {
 
     dp.setTimeRange(min, max);
 };
+
+const heapPlot = getWidgetById("heap-plot") as Plot<HeapInfo>;
+heapPlot.setDataAndAccessor(dp.getHeapData(), (hi) => { return { t: hi.t, y: hi.used } });
 
 registerEventHandler(new ScrollbarCaret());
 setWidgetsLoading(true);
