@@ -4,7 +4,7 @@ import { DataProvider, HeapInfo } from "./data";
 import { EventHandler, initEventManager, registerEventHandler, getCurrentMouseEvent } from "./event-manager";
 import { ZoneFlameGraph } from "./zone-flame-graph";
 import { Plot } from "./plot";
-import { formatTime } from "./common";
+import { formatTime, formatUnits, STORAGE_UNITS } from "./common";
 
 loadDocumentWidgets();
 loadDocumentSVGs();
@@ -60,7 +60,7 @@ function updateScrollbarCaret() {
 dp.onEndChanged.register(updateScrollbarCaret);
 dp.onTimeRangeChanged.register(updateScrollbarCaret);
 
-dp.onZoneDataChanged.register(() => {
+dp.onMainDataChanged.register(() => {
     clearLoadingAndRender("zone-graphs");
     clearLoadingAndRender("heap-plot");
 });
@@ -147,6 +147,7 @@ document.getElementById("scrollbar-right").onclick = () => {
 
 const heapPlot = getWidgetById("heap-plot") as Plot<HeapInfo>;
 heapPlot.setDataAndAccessor(dp.getHeapData(), (hi) => { return { t: hi.t, y: hi.used } });
+heapPlot.setLabeler((d) => `<strong>Heap: </strong>${formatUnits(d.used, STORAGE_UNITS)}`);
 
 registerEventHandler(new ScrollbarCaret());
 setWidgetsLoading(true);

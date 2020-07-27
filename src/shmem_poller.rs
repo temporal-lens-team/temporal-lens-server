@@ -1,23 +1,24 @@
 use crate::string_collection::{StringCollection, Key as SCKey};
 use crate::stoppable_thread::StoppableThread;
 use crate::memdb::{TimeData, MemDB};
-use crate::common::LiteZoneData;
+use crate::common::{LiteZoneData, LitePlotData};
 
 use std::time::{Instant, Duration};
 use std::boxed::Box;
 use std::mem::MaybeUninit;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use temporal_lens::shmem::{self, SharedMemory, FrameData, ZoneData};
+use temporal_lens::shmem::{self, SharedMemory, FrameData, ZoneData, PlotData};
 use log::{info, warn};
 
 static POLLER: StoppableThread = StoppableThread::new("shmem_poller");
 static LAST_QUERY: AtomicU64 = AtomicU64::new(0);
 
-pub fn start(mut shmem: SharedMemory, opt_start: Option<Instant>, mut str_collection: StringCollection, mut frame_db: MemDB<FrameData>, mut zone_db: MemDB<LiteZoneData>) {
+pub fn start(mut shmem: SharedMemory, opt_start: Option<Instant>, mut str_collection: StringCollection, mut frame_db: MemDB<FrameData>, mut zone_db: MemDB<LiteZoneData>, mut plot_db: MemDB<LitePlotData>) {
     POLLER.start(move || {
         let mut frame_data: Box<MaybeUninit<[FrameData; shmem::NUM_ENTRIES]>> = Box::new_uninit();
         let mut zone_data: Box<MaybeUninit<[ZoneData; shmem::NUM_ENTRIES]>> = Box::new_uninit();
+        let mut plot_data: Box<MaybeUninit<[PlotData; shmem::NUM_ENTRIES]>> = Box::new_uninit();
         let mut last_time: shmem::Time = 0.0;
         let mut counter = 0;
 
@@ -32,6 +33,7 @@ pub fn start(mut shmem: SharedMemory, opt_start: Option<Instant>, mut str_collec
                 }
             }
 
+            //================= FRAMES =================//
             let (fd, count, missed) = unsafe {
                 let (count, missed) = shmem.frame_data.retrieve_unchecked(frame_data.get_mut().as_mut_ptr());
                 (frame_data.get_ref(), count, missed)
@@ -52,6 +54,7 @@ pub fn start(mut shmem: SharedMemory, opt_start: Option<Instant>, mut str_collec
 
             total_data_retrieved += count;
 
+            //================= ZONES =================//
             let (zd, count, missed) = unsafe {
                 let (count, missed) = shmem.zone_data.retrieve_unchecked(zone_data.get_mut().as_mut_ptr());
                 (zone_data.get_ref(), count, missed)
@@ -89,8 +92,38 @@ pub fn start(mut shmem: SharedMemory, opt_start: Option<Instant>, mut str_collec
             }
 
             total_data_retrieved += count;
+
+            //================= PLOTS =================//
+            let (pd, count, missed) = unsafe {
+                let (count, missed) = shmem.plot_data.retrieve_unchecked(plot_data.get_mut().as_mut_ptr());
+                (plot_data.get_ref(), count, missed)
+            };
+
+            if missed > 0 {
+                warn!("Server is too slow! Missed {} PlotData entries!", missed);
+            }
+
+            for i in 0..count {
+                let pdi = &pd[i];
+
+                if let Some(s) = pdi.name.make_str() {
+                    str_collection.insert(SCKey::StaticString(pdi.name.get_key()), s);
+                }
+
+                plot_db.push(TimeData {
+                    time: pdi.time,
+                    data: LitePlotData {
+                        color: pdi.color,
+                        value: pdi.value,
+                        name : pdi.name.get_key()
+                    }
+                });
+            }
+
+            total_data_retrieved += count;
             frame_db.unload_old_chunks();
             zone_db.unload_old_chunks();
+            plot_db.unload_old_chunks();
             
             if total_data_retrieved <= 0 {
                 std::thread::sleep(Duration::from_millis(10));

@@ -2,7 +2,7 @@ import { Widget } from "./widget";
 import { DataProvider } from "./data";
 import { rgbToHsl } from "./color-conversion-algorithms";
 import { TooltipManager, TooltipRect } from "./tooltip-manager";
-import { escapeHTML, formatNanoTime } from "./common";
+import { escapeHTML, formatUnits, TIME_UNITS } from "./common";
 
 const lineHeight = 32;
 
@@ -104,7 +104,7 @@ export class ZoneFlameGraph extends Widget {
                     if(zw >= 2 && x >= zx && x <= zx + zw && y >= zy && y <= zy + lineHeight) {
                         TooltipManager.getInstance().displayTooltip(new TooltipRect(this.canvas, zx, zy, zw, lineHeight), () => `
                             <strong>Zone name: </strong>${escapeHTML(zone.getZoneName())}<br/>
-                            <strong>Duration: </strong>${formatNanoTime(zone.duration)}
+                            <strong>Duration: </strong>${formatUnits(zone.duration, TIME_UNITS)}
                         `);
 
                         break;

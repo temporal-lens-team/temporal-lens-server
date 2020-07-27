@@ -23,6 +23,13 @@ type JSONZoneEnd = {
     error: string
 };
 
+type JSONPlotInfo = {
+    time : number,
+    color: number,
+    value: number,
+    name : number
+};
+
 export class FrameInfo {
     public number: number;
     public start: number;
@@ -35,7 +42,7 @@ export class FrameInfo {
         this.duration = orig.duration;
         this.end = orig.end;
     }
-};
+}
 
 export class ZoneInfo {
     public entry_id: number;
@@ -74,9 +81,9 @@ export class HeapInfo {
     public t: number;
     public used: number;
 
-    public constructor(t: number) {
-        this.t = t;
-        this.used = Math.random();
+    public constructor(from: JSONPlotInfo) {
+        this.t = from.time;
+        this.used = from.value;
     }
 }
 
@@ -98,7 +105,8 @@ type ZoneDataQueryResult = {
     status: string,
     strings: StringMap,
     thread_names: StringMap,
-    results: JSONZoneInfo[]
+    zones: JSONZoneInfo[],
+    plots: JSONPlotInfo[]
 };
 
 export class DataProvider {
@@ -115,16 +123,12 @@ export class DataProvider {
     private readonly heapData: HeapInfo[] = [];
 
     public readonly onFrameDataChanged: SimpleEvent = new SimpleEvent();
-    public readonly onZoneDataChanged: SimpleEvent = new SimpleEvent();
+    public readonly onMainDataChanged: SimpleEvent = new SimpleEvent();
     public readonly onEndChanged: SimpleEvent = new SimpleEvent();
     public readonly onTimeRangeChanged: SimpleEvent = new SimpleEvent();
     public readonly onNewThread: Event<number> = new Event();
 
     private constructor() {
-        for(let i = 0; i <= 10; i++) {
-            this.heapData.push(new HeapInfo((i / 10.0 * 0.9 + 0.05) * (this.timeRange.max - this.timeRange.min) + this.timeRange.min));
-        }
-
         setInterval(() => this.fetchEnd(), 250);
         setTimeout(() => this.awaitInitialZoneData(), 50);
         setTimeout(() => this.awaitInitialFrameTimes(), 100);
@@ -203,7 +207,7 @@ export class DataProvider {
             zi.length = 0;
         }
 
-        for(const zd of safeData.results) {
+        for(const zd of safeData.zones) {
             let dst = this.perThread.get(zd.thread);
 
             if(dst === undefined) {
@@ -216,7 +220,15 @@ export class DataProvider {
             dst.push(new ZoneInfo(zd));
         }
 
-        this.onZoneDataChanged.invoke();
+        this.heapData.length = 0;
+
+        for(const pd of safeData.plots) {
+            if(pd.name === 0) {
+                this.heapData.push(new HeapInfo(pd));
+            }
+        }
+
+        this.onMainDataChanged.invoke();
         return true;
     }
 
@@ -353,6 +365,6 @@ export class DataProvider {
 
         this.onTimeRangeChanged.invoke();
         this.onFrameDataChanged.invoke();
-        this.onZoneDataChanged.invoke();
+        this.onMainDataChanged.invoke();
     }
 }

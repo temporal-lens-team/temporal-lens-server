@@ -83,9 +83,10 @@ export class Event<T> {
     }
 }
 
-const TIME_UNITS: string[] = ["ns", "µs", "ms", "s"];
+export const TIME_UNITS: string[] = ["ns", "µs", "ms", "s"];
+export const STORAGE_UNITS: string[] = ["bytes", "KB", "MB", "GB", "TB", "PB", "YB"];
 
-export function formatNanoTime(t: number): string {
+export function formatUnits(t: number, units: string[]): string {
     let unit = 0;
 
     while(t >= 1000.0 && unit < TIME_UNITS.length - 1) {
@@ -94,8 +95,8 @@ export function formatNanoTime(t: number): string {
     }
 
     if(unit <= 0) {
-        return t.toString() + " " + TIME_UNITS[0];
+        return t.toString() + " " + units[0];
     } else {
-        return t.toFixed(3) + " " + TIME_UNITS[unit];
+        return t.toFixed(3) + " " + units[unit];
     }
 }

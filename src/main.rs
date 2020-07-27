@@ -13,7 +13,7 @@ mod common;
 use temporal_lens::shmem::{SharedMemory, FrameData};
 use string_collection::{StringCollection, Accessor as SCAccessor, Key as SCKey};
 use memdb::{MemDB, Accessor as MDBAccessor};
-use common::LiteZoneData;
+use common::{LiteZoneData, LitePlotData};
 
 use std::path::PathBuf;
 use std::time::Instant;
@@ -50,6 +50,7 @@ fn shutdown() {
 struct Managed {
     frame_db: MDBAccessor<FrameData>,
     zone_db: MDBAccessor<LiteZoneData>,
+    plot_db: MDBAccessor<LitePlotData>,
     str_collection: SCAccessor,
     start: Instant
 }
@@ -151,20 +152,45 @@ fn query_plots_endpoint(start: f64, end: f64, state: State<Managed>) -> JsonValu
 
     let mut strings: FxHashMap<usize, &str> = Default::default();
     let mut thread_names: FxHashMap<usize, &str> = Default::default();
-    let mut results = Vec::new();
+    let mut zones = Vec::new();
+    let mut plots = Vec::new();
 
     state.zone_db.query(start, Some(end), |k, r| {
         strings.entry(r.data.name).or_insert_with(|| state.str_collection.get(SCKey::StaticString(r.data.name)).unwrap_or("????"));
         thread_names.entry(r.data.thread).or_insert_with(|| state.str_collection.get(SCKey::ThreadName(r.data.thread)).unwrap_or("????"));
 
-        results.push(r.data.reconstruct(r.time, k));
+        zones.push(r.data.reconstruct(r.time, k));
     });
+
+    state.plot_db.query_previous(start, |r| {
+        if r.data.name != 0 {
+            strings.entry(r.data.name).or_insert_with(|| state.str_collection.get(SCKey::StaticString(r.data.name)).unwrap_or("????"));
+        }
+
+        plots.push(r.data.reconstruct(r.time));
+    });
+
+    state.plot_db.query(start, Some(end), |_, r| {
+        if r.data.name != 0 {
+            strings.entry(r.data.name).or_insert_with(|| state.str_collection.get(SCKey::StaticString(r.data.name)).unwrap_or("????"));
+        }
+
+        plots.push(r.data.reconstruct(r.time));
+    });
+
+    let plots_slice = if plots.len() >= 2 && plots[0].time == plots[1].time {
+        error!("Previous plot query and regular plot query collision!");
+        &plots[1..]
+    } else {
+        &plots
+    };
 
     json!({
         "status": "ok",
         "strings": strings,
         "thread_names": thread_names,
-        "results": results
+        "zones": zones,
+        "plots": plots_slice
     })
 }
 
@@ -246,7 +272,7 @@ fn main() {
     info!("Starting up...");
 
     let data_dir = temporal_lens::get_data_dir();
-    let (frame_db_dir, zone_db_dir) = subdirs!(data_dir, ["frames", "zone-db"]);
+    let (frame_db_dir, zone_db_dir, plot_db_dir) = subdirs!(data_dir, ["frames", "zone-db", "plot-db"]);
 
     if !data_dir.exists() {
         if let Err(err) = std::fs::create_dir(&data_dir) {
@@ -255,7 +281,7 @@ fn main() {
         }
     }
 
-    if !clean_or_create_dir(&frame_db_dir) || !clean_or_create_dir(&zone_db_dir) {
+    if !clean_or_create_dir(&frame_db_dir) || !clean_or_create_dir(&zone_db_dir) || !clean_or_create_dir(&plot_db_dir) {
         return;
     }
 
@@ -275,17 +301,19 @@ fn main() {
     let str_collection = StringCollection::new();
     let frame_db = unsafe { MemDB::new("frame_db".to_string(), frame_db_dir) };
     let zone_db = unsafe { MemDB::new("zone_db".to_string(), zone_db_dir) }; //Safe because we called it after `memdb::init()`
+    let plot_db = unsafe { MemDB::new("plot_db".to_string(), plot_db_dir) };
     let start_instant = Instant::now();
 
     let managed = Managed {
         frame_db: frame_db.new_accessor(),
         zone_db: zone_db.new_accessor(),
+        plot_db: plot_db.new_accessor(),
         str_collection: str_collection.new_accessor(),
         start: start_instant
     };
 
     let opt_start = if arg_matches.is_present("forever") { None } else { Some(start_instant) };
-    shmem_poller::start(shmem, opt_start, str_collection, frame_db, zone_db);
+    shmem_poller::start(shmem, opt_start, str_collection, frame_db, zone_db, plot_db);
     
     if let Err(err) = ctrlc::set_handler(shutdown) {
         warn!("Failed to set Ctrl-C handler: {:?}. Please use the `/shutdown` route to shutdown the server gracefully.", err);

@@ -62,10 +62,11 @@ export class Plot<T> extends Widget {
                 this.lastMax = pt.y;
             }
 
+            pt.t = Math.max(dp.remapTime(pt.t), 0.0) * w;
             data[i] = pt;
         }
 
-        if(data.length >= 2) {
+        if(data.length >= 1) {
             //Background
             let prevVal = (1.0 - data[0].y / this.lastMax) * h + pointSize;
 
@@ -77,15 +78,15 @@ export class Plot<T> extends Widget {
             if(interp) {
                 for(const pt of data) {
                     prevVal = (1.0 - pt.y / this.lastMax) * h + pointSize;
-                    ctx.lineTo(dp.remapTime(pt.t) * w, prevVal);
+                    ctx.lineTo(pt.t, prevVal);
                 }
             } else {
                 for(let i = 1; i < data.length; i++) {
                     const pt = data[i];
-                    ctx.lineTo(dp.remapTime(pt.t) * w, prevVal);
+                    ctx.lineTo(pt.t, prevVal);
 
                     prevVal = (1.0 - pt.y / this.lastMax) * h + pointSize;
-                    ctx.lineTo(dp.remapTime(pt.t) * w, prevVal);
+                    ctx.lineTo(pt.t, prevVal);
                 }
             }
 
@@ -105,15 +106,15 @@ export class Plot<T> extends Widget {
             if(interp) {
                 for(const pt of data) {
                     prevVal = (1.0 - pt.y / this.lastMax) * h + pointSize;
-                    ctx.lineTo(dp.remapTime(pt.t) * w, prevVal);
+                    ctx.lineTo(pt.t, prevVal);
                 }
             } else {
                 for(let i = 1; i < data.length; i++) {
                     const pt = data[i];
-                    ctx.lineTo(dp.remapTime(pt.t) * w, prevVal);
+                    ctx.lineTo(pt.t, prevVal);
 
                     prevVal = (1.0 - pt.y / this.lastMax) * h + pointSize;
-                    ctx.lineTo(dp.remapTime(pt.t) * w, prevVal);
+                    ctx.lineTo(pt.t, prevVal);
                 }
             }
 
@@ -126,7 +127,7 @@ export class Plot<T> extends Widget {
 
         for(const pt of data) {
             ctx.beginPath();
-            ctx.ellipse(dp.remapTime(pt.t) * w, (1.0 - pt.y / this.lastMax) * h + pointSize, pointSize, pointSize, 0, 0, 2.0 * Math.PI);
+            ctx.ellipse(pt.t, (1.0 - pt.y / this.lastMax) * h + pointSize, pointSize, pointSize, 0, 0, 2.0 * Math.PI);
             ctx.fill();
         }
 

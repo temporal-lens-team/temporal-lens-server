@@ -489,6 +489,48 @@ impl<T: Serialize + DeserializeOwned + ShouldStopQuery> Accessor<T> {
         }
     }
 
+    pub fn query_previous<Func: FnMut(&TimeData<T>)>(&self, t: f64, mut callback: Func) {
+        let shared = self.contents.shared.read().unwrap();
+        let chunk_count = shared.old_chunks.len();
+
+        let first_chunk;
+        if chunk_count <= 0 || t <= shared.old_chunks[0].max {
+            first_chunk = 0;
+        } else if t > shared.old_chunks[chunk_count - 1].max {
+            first_chunk = chunk_count;
+        } else {
+            first_chunk = Self::binary_search_chunk(&shared.old_chunks, t);
+        }
+
+        drop(shared);
+
+        let last_of_prev_chunk = self.with_chunk(first_chunk, |chunk| {
+            let chunk_sz = chunk.len();
+            if chunk_sz <= 0 || t < chunk[0].time || t >= chunk[chunk_sz - 1].time {
+                return false;
+            }
+
+            let i = Self::binary_search(chunk, t);
+
+            if i > 0 {
+                callback(&chunk[i - 1]);
+                false
+            } else {
+                true
+            }
+        }).unwrap_or(false);
+
+        if last_of_prev_chunk && first_chunk > 0 {
+            self.with_chunk(first_chunk - 1, move |chunk| {
+                let chunk_sz = chunk.len();
+
+                if chunk_sz > 0 {
+                    callback(&chunk[chunk_sz - 1]);
+                }
+            });
+        }
+    }
+
     pub fn query<Func: FnMut(u64, &TimeData<T>)>(&self, min: f64, max: Option<f64>, mut callback: Func) {
         let mut lookup_list = Vec::new(); //TODO: It sucks having to allocate everytime...
         let (min, max, access) = self.prepare_query(min, max, &mut lookup_list);
